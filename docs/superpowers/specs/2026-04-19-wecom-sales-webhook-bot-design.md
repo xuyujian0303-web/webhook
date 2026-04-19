@@ -1,245 +1,245 @@
-# Enterprise WeChat Sales Webhook Bot Design
+# 企业微信销售晒单 Webhook 机器人设计文档
 
-## Goal
+## 目标
 
-Build a Windows-first prototype webhook bot that watches a fixed CSV sales export, filters qualifying sales orders, attaches product images by barcode, and sends one Enterprise WeChat group robot message per qualifying order.
+构建一个以 Windows 本机为第一运行环境的原型机器人。它定时读取固定的 CSV 销售导出文件，筛选符合条件的销售单，按条码关联商品图片，并将每一张符合条件的销售单作为一条企业微信群机器人消息发送出去。
 
-The prototype should validate the full workflow before the data source is replaced by a database/API and before product image URLs are provided by EMS or another internal system.
+这个原型的目标是先验证完整闭环：数据读取、销售单聚合、筛选、图片关联、企业微信推送都能跑通。后续再把数据源替换成数据库或 API，把图片地址来源替换成 EMS 或其他内部系统提供的图片 URL。
 
-## Scope
+## 范围
 
-In scope:
+第一版包含：
 
-- Read one fixed CSV file that may be updated daily or periodically.
-- Treat each CSV row as one sold product line.
-- Group rows by a unique sales order number.
-- Filter sales orders by configurable amount threshold or product style whitelist.
-- Generate one `markdown_v2` Enterprise WeChat message per qualifying sales order.
-- Include text details and up to 8 product image URLs in the same message.
-- Serve local barcode-named product images through a small local HTTP image service for prototype testing.
-- Persist pushed order state so the bot does not resend the same order unless state is cleared.
+- 读取一个固定 CSV 文件，该文件可能每天更新，或按周期覆盖更新。
+- 将 CSV 中每一行视为一条商品销售明细。
+- 按唯一销售单号将多行聚合成一张销售单。
+- 根据可配置的销售额阈值或款号白名单筛选销售单。
+- 每张符合条件的销售单生成一条企业微信 `markdown_v2` 消息。
+- 在同一条消息中包含文字详情和最多 8 张商品图片 URL。
+- 通过一个轻量本地 HTTP 图片服务对外提供按条码命名的商品图片，用于原型测试。
+- 本地持久化已推送销售单状态，避免重复晒单，除非手动清空状态。
 
-Out of scope for the first prototype:
+第一版不包含：
 
-- Direct database/API integration.
-- EMS image lookup integration.
-- Public cloud/object-storage deployment.
-- User interface or admin dashboard.
-- Full monitoring stack.
+- 直接对接数据库或 API。
+- EMS 图片查询接口接入。
+- 公网云服务或对象存储部署。
+- 图形化管理后台。
+- 完整监控平台。
 
-## Architecture
+## 架构设计
 
-The prototype is split into small replaceable modules.
+原型拆分为几个边界清晰、后续可替换的模块。
 
 ### CsvSalesDataSource
 
-Reads the configured CSV file every scan cycle. It parses each row into a product sale line, then groups lines by sales order number.
+负责每轮扫描时读取配置中的 CSV 文件，将每一行解析成一条商品销售记录，再按销售单号聚合成销售单对象。
 
-Required logical fields:
+必需逻辑字段：
 
-- Sales order number.
-- Sales date/time.
-- Sales store.
-- Sales order total amount.
-- Product barcode.
-- Product style number.
-- Product unit price.
+- 销售单号
+- 销售日期时间
+- 销售门店
+- 销售单总额
+- 商品条码
+- 商品款号
+- 商品单价
 
-Optional logical fields:
+可选逻辑字段：
 
-- Quantity.
+- 数量
 
-CSV header names are configurable because exports may use names such as `销售日期（时间）`, `销售日期时间`, or `销售时间`.
+CSV 表头名必须可配置，因为实际导出中可能出现 `销售日期（时间）`、`销售日期时间`、`销售时间` 这类不同命名。
 
 ### SalesFilter
 
-Evaluates each grouped sales order against configuration.
+负责根据配置判断一张销售单是否需要推送。
 
-A sales order qualifies if it satisfies either condition:
+命中规则为满足任一条件即可：
 
-- Sales order total amount is greater than or equal to the configured threshold.
-- At least one product style number appears in the configured style whitelist.
+- 销售单总额大于等于配置阈值。
+- 销售单内任意商品的款号命中配置中的款号白名单。
 
-The message includes the matched reason so recipients understand why the order was posted.
+最终消息中要带出“命中原因”，让群里的人知道这张单为什么被晒单。
 
 ### PushStateStore
 
-Stores local state on disk.
+负责本地状态持久化。
 
-State includes:
+需要保存的信息：
 
-- Pushed sales order numbers.
-- Last scan time.
-- Recent processing metadata useful for debugging.
+- 已推送过的销售单号
+- 上一次扫描时间
+- 最近处理结果或调试辅助信息
 
-Default behavior is to avoid duplicate posts. Each scan prioritizes orders whose sales time is later than the last scan time, then checks the pushed order number set before sending. The state can be manually cleared to resend historical orders for testing or recovery.
+默认行为是避免重复推送。每轮扫描优先处理销售时间晚于上次扫描时间的销售单，同时再检查该销售单号是否已经推送过。手动清空状态后，可以重发历史销售单用于测试或补发。
 
 ### ImageUrlProvider
 
-Returns an image URL for each product line.
+负责为每条商品记录返回一个图片 URL。
 
-Prototype implementation:
+第一版实现：
 
-- Looks for product image files in a configured local directory.
-- Matches by barcode filename, such as `6901234567890.jpg` or `6901234567890.png`.
-- Returns a URL hosted by the local image service.
+- 在配置的本地图片目录中查找商品图片。
+- 以条码作为文件名匹配，例如 `6901234567890.jpg` 或 `6901234567890.png`。
+- 返回由本地图片服务暴露出来的 HTTP URL。
 
-Future implementations can replace this module with:
+后续可替换为：
 
-- EMS lookup by style number.
-- Database/API image URL lookup.
-- Cloud object storage URL generation.
+- EMS 按款号查询图片 URL
+- 数据库或 API 返回图片 URL
+- 云端对象存储 URL 生成
 
-The message builder depends only on the `ImageUrlProvider` interface, not on the storage details.
+消息生成器只依赖 `ImageUrlProvider` 接口，不依赖图片具体存储方式。
 
 ### LocalImageService
 
-Runs a lightweight local HTTP service that exposes barcode-named product images under a configured base URL.
+负责启动一个轻量本地 HTTP 服务，对外提供按条码命名的图片访问地址。
 
-This service is for prototype validation. Enterprise WeChat clients must be able to access the URL for images to render. For testing, this may work on the same machine or company LAN. For broader use, image URLs should later come from a cloud server, object storage, EMS, or another reachable internal service.
+这个服务只用于原型验证。企业微信客户端能否显示图片，取决于收消息的人是否能够访问这些 URL。测试阶段在本机或公司局域网内通常可行；正式阶段更适合由云服务、对象存储、EMS 或可访问的内部服务来提供图片地址。
 
 ### WeComWebhookClient
 
-Sends messages to the configured Enterprise WeChat group robot webhook.
+负责向企业微信群机器人 Webhook 发送消息。
 
-The first prototype uses `markdown_v2` because it can combine structured text and image URL markdown in one message. The client should retry temporary failures. If all retries fail, the sales order must not be marked as pushed.
+第一版使用 `markdown_v2`，因为它可以在一条消息内同时承载结构化文字和图片 Markdown。Webhook 请求失败时应做有限次数重试；如果最终发送失败，该销售单不能被标记为“已推送”。
 
-## Data Flow
+## 数据流
 
-1. Scheduler wakes every configured interval, defaulting to 10 minutes.
-2. `CsvSalesDataSource` reads the fixed CSV file.
-3. Rows are parsed into product sale lines.
-4. Lines are grouped by sales order number.
-5. Orders older than or equal to the last scan time are skipped unless they have not been pushed and the implementation is running in a manual backfill/test mode.
-6. `PushStateStore` removes orders that have already been pushed.
-7. `SalesFilter` selects qualifying orders.
-8. `ImageUrlProvider` resolves image URLs for each product line.
-9. The message builder creates one `markdown_v2` message per qualifying order.
-10. `WeComWebhookClient` sends the message.
-11. On confirmed send success, `PushStateStore` records the order number as pushed.
-12. The scan result is logged.
+1. 定时器按配置周期触发，默认每 10 分钟执行一次。
+2. `CsvSalesDataSource` 读取固定 CSV 文件。
+3. 将每一行解析成商品销售明细。
+4. 按销售单号把多行聚合成销售单。
+5. 默认只处理销售时间晚于上次扫描时间的销售单；如果是手动回放或测试模式，可放宽这个限制。
+6. `PushStateStore` 排除已经推送过的销售单号。
+7. `SalesFilter` 判断哪些销售单命中规则。
+8. `ImageUrlProvider` 为命中的商品明细解析图片 URL。
+9. 消息生成器为每张命中的销售单构造一条 `markdown_v2` 消息。
+10. `WeComWebhookClient` 发送消息。
+11. 发送成功后，`PushStateStore` 记录销售单号为已推送。
+12. 本轮扫描结果写入日志。
 
-## Message Format
+## 消息格式
 
-Each qualifying sales order produces one `markdown_v2` message.
+每张命中的销售单发送一条 `markdown_v2` 消息。
 
-The message includes:
+消息内容包括：
 
-- Sales order number.
-- Sales time.
-- Store.
-- Sales order total amount.
-- Matched reason.
-- Product details with barcode, style number, unit price, and quantity when available.
-- Missing image notes when an image is not found.
-- Up to 8 product image URLs using Markdown image syntax.
+- 销售单号
+- 销售时间
+- 门店
+- 销售单总额
+- 命中原因
+- 商品明细，优先展示条码、款号、单价，有数量则一起展示
+- 缺失图片的条码提示
+- 最多 8 张商品图片 URL，使用 Markdown 图片语法
 
-If a sales order has more than 8 product images, the message shows the first 8 unique barcode images and states how many additional images were omitted. Duplicate barcodes are shown once in the image section, while product line details remain complete.
+如果一张销售单包含超过 8 张图片，则只展示前 8 张唯一条码图片，并在文字中说明还有多少张未展示。若同一销售单中有重复条码，图片部分只展示一次，但商品明细部分仍保留完整记录。
 
-The maximum image count is configurable, defaulting to 8.
+最大图片展示数量做成配置项，默认值为 8。
 
-## Configuration
+## 配置设计
 
-Use a YAML configuration file for the prototype.
+第一版使用 YAML 配置文件。
 
-Configuration values:
+配置项包括：
 
-- CSV file path.
-- CSV encoding.
-- CSV field mapping.
-- Image directory.
-- Local image service host and port.
-- Enterprise WeChat webhook URL.
-- Scan interval.
-- Sales amount threshold.
-- Product style whitelist.
-- Maximum image count per message.
-- State file path.
-- Log file path.
-- Webhook retry count and timeout.
+- CSV 文件路径
+- CSV 编码
+- CSV 字段映射
+- 图片目录
+- 本地图片服务监听地址和端口
+- 企业微信 Webhook 地址
+- 扫描间隔
+- 销售额阈值
+- 款号白名单
+- 每条消息最大图片数
+- 状态文件路径
+- 日志文件路径
+- Webhook 重试次数与超时时间
 
-Secrets such as the webhook URL should be stored in local configuration that is not committed when this becomes a git project.
+像 Webhook 地址这类敏感信息，后续进入正式项目后应放在不提交到 Git 的本地配置中。
 
-## Error Handling
+## 错误处理
 
-The bot should continue running when individual records fail.
+机器人不应因为单条异常或单个外部失败而整体退出。
 
-CSV read failure:
+CSV 读取失败：
 
-- Log the error.
-- Do not advance last scan time.
-- Try again on the next cycle.
+- 记录日志
+- 不推进上次扫描时间
+- 下一个周期继续重试
 
-Required field missing:
+必填字段缺失：
 
-- Log the affected row.
-- Skip that row.
-- Continue processing other rows.
+- 记录出错行
+- 跳过该行
+- 继续处理其他行
 
-Order has missing product images:
+商品图片缺失：
 
-- Send the text message anyway.
-- Include missing barcode notes in the message.
-- Do not fail the order.
+- 仍然发送文字消息
+- 在消息中标记缺失图片的条码
+- 不因为缺图而阻断整单推送
 
-Webhook send failure:
+Webhook 发送失败：
 
-- Retry according to configuration.
-- If retries are exhausted, log the failure.
-- Do not mark the order as pushed.
+- 按配置重试
+- 重试耗尽后记录日志
+- 不将该销售单标记为已推送
 
-Message too long:
+消息过长：
 
-- Reduce included image count first.
-- If still too long, truncate product detail lines with an explicit omitted-count note.
-- Preserve order number, total amount, store, time, and matched reason.
+- 先减少图片数量
+- 如果仍然过长，再截断商品明细，并明确标注还有多少条未展示
+- 销售单号、总额、门店、时间、命中原因必须保留
 
-## Testing Plan
+## 测试方案
 
-Prototype validation should cover three levels.
+原型验证分三层进行。
 
-Parser and grouping tests:
+解析与聚合测试：
 
-- A small CSV with multiple rows sharing one sales order number groups into one order.
-- Header mapping accepts configured Chinese column names.
-- Missing optional quantity defaults safely.
+- 一份小型 CSV 中多行共用同一销售单号时，应正确聚合成一张销售单
+- 字段映射应支持配置后的中文列名
+- 数量字段缺失时应安全处理
 
-Filter and state tests:
+筛选与状态测试：
 
-- Amount threshold match qualifies an order.
-- Style whitelist match qualifies an order.
-- Non-matching order is skipped.
-- Previously pushed order is skipped.
-- Clearing state allows resend.
+- 金额阈值命中时销售单应被选中
+- 款号白名单命中时销售单应被选中
+- 未命中的销售单应被跳过
+- 已推送销售单应被跳过
+- 清空状态后应允许重新推送
 
-Integration tests:
+集成测试：
 
-- Local image service returns barcode-named images.
-- Message builder includes text and up to 8 image URLs.
-- A test Enterprise WeChat group receives a `markdown_v2` message with multiple product images.
-- If client rendering of multiple `markdown_v2` images is unstable, evaluate fallback to `news` or separate `image` messages while preserving the same data pipeline.
+- 本地图片服务能正确返回按条码命名的图片
+- 消息生成器能输出文字加最多 8 张图片 URL
+- 在企业微信测试群中验证 `markdown_v2` 的多图展示效果
+- 如果客户端对 `markdown_v2` 多图渲染不稳定，则评估退化为 `news` 或单独 `image` 消息，同时保留同一套数据处理链路
 
-## Migration Path
+## 迁移路径
 
-The prototype intentionally isolates replaceable boundaries.
+这个原型从一开始就为后续替换预留边界。
 
-Data source migration:
+数据源迁移：
 
-- Replace `CsvSalesDataSource` with a database/API data source when IT provides access.
-- Keep the grouped sales order model unchanged.
+- 将 `CsvSalesDataSource` 替换成数据库或 API 数据源
+- 保持销售单聚合后的领域模型不变
 
-Image source migration:
+图片来源迁移：
 
-- Replace local barcode image lookup with EMS/database/API image lookup.
-- Keep `ImageUrlProvider` output as reachable image URLs.
+- 将本地图片查找替换成 EMS、数据库或 API 返回图片 URL
+- `ImageUrlProvider` 的输出仍然统一为可访问 URL
 
-Deployment migration:
+部署迁移：
 
-- Move the scheduler and webhook client from the Windows prototype machine to a Windows server or Linux server.
-- Move images from local HTTP service to a reachable internal or cloud-backed image service.
+- 将调度器和 Webhook 客户端从 Windows 本机迁移到 Windows 服务器或 Linux 服务器
+- 将图片从本地 HTTP 服务迁移到可访问的内部服务或云端图片服务
 
-## Open Operational Notes
+## 运营补充说明
 
-- The first prototype should include a manual one-shot run command for safe testing.
-- The first prototype should include a dry-run mode that prints or logs messages without sending to Enterprise WeChat.
-- The exact CSV field mapping should be finalized with a real sample export before implementation testing.
+- 第一版应提供手动执行一次的命令，方便单次验证
+- 第一版应提供 dry-run 模式，只打印或记录消息，不实际发企业微信
+- 在进入实现前，仍需要结合一份真实 CSV 样例来最终确认字段映射
