@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
 from wecom_sales_webhook_bot.state_store import PushStateStore
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def run_once(
@@ -19,7 +23,13 @@ def run_once(
     last_scan_at = state_store.get_last_scan_at()
     sent_orders: list[str] = []
 
-    for order in data_source.load_orders():
+    try:
+        orders = data_source.load_orders()
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.error("failed to load csv orders: %s", exc)
+        return []
+
+    for order in orders:
         if last_scan_at and order.sold_at <= last_scan_at:
             continue
         if state_store.has_pushed(order.order_no):

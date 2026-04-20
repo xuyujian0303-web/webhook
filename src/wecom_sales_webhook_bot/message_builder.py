@@ -9,8 +9,9 @@ def build_markdown_v2_message(
     filter_result: FilterResult,
     image_urls: dict[str, str],
     max_images: int,
+    max_bytes: int = 4096,
 ) -> str:
-    lines = [
+    header = [
         "# 销售晒单",
         f"> 销售单号：`{order.order_no}`",
         f"> 销售时间：`{order.sold_at:%Y-%m-%d %H:%M:%S}`",
@@ -21,29 +22,32 @@ def build_markdown_v2_message(
         "## 商品明细",
     ]
 
-    for item in order.items:
-        lines.append(
-            f"- 条码：`{item.barcode}` 款号：`{item.style_no}` 单价：`{item.unit_price:.2f}` 数量：`{item.quantity}`"
-        )
-
-    lines.append("")
-    lines.append("## 商品图片")
+    detail_lines = [
+        f"- 条码：`{item.barcode}` 款号：`{item.style_no}` 单价：`{item.unit_price:.2f}` 数量：`{item.quantity}`"
+        for item in order.items
+    ]
 
     unique_barcodes: list[str] = []
     for item in order.items:
         if item.barcode in image_urls and item.barcode not in unique_barcodes:
             unique_barcodes.append(item.barcode)
 
+    image_lines = ["", "## 商品图片"]
     displayed = unique_barcodes[:max_images]
     for barcode in displayed:
-        lines.append(f"![]({image_urls[barcode]})")
+        image_lines.append(f"![]({image_urls[barcode]})")
 
     omitted = len(unique_barcodes) - len(displayed)
     if omitted > 0:
-        lines.append(f"> 还有 {omitted} 张图片未展示")
+        image_lines.append(f"> 还有 {omitted} 张图片未展示")
 
     missing = [item.barcode for item in order.items if item.barcode not in image_urls]
     if missing:
-        lines.append(f"> 缺失图片条码：{', '.join(missing)}")
+        image_lines.append(f"> 缺失图片条码：{', '.join(missing)}")
+
+    lines = header + detail_lines + image_lines
+    while len("\n".join(lines).encode("utf-8")) > max_bytes and len(detail_lines) > 1:
+        detail_lines.pop()
+        lines = header + detail_lines + ["> 商品明细已截断"] + image_lines
 
     return "\n".join(lines)

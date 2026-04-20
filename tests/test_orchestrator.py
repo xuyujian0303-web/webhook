@@ -121,3 +121,41 @@ def test_cli_exposes_run_once_schedule_and_clear_state_commands() -> None:
     assert run_once_args.command == "run-once"
     assert clear_state_args.command == "clear-state"
     assert schedule_args.command == "schedule"
+
+
+class BrokenDataSource:
+    def load_orders(self):
+        raise RuntimeError("csv unavailable")
+
+
+class DummyFilter:
+    def evaluate(self, order):
+        raise AssertionError("should not be called")
+
+
+class DummyImageProvider:
+    def get_url(self, barcode):
+        raise AssertionError("should not be called")
+
+
+class DummyClient:
+    def send_markdown_v2(self, content):
+        raise AssertionError("should not be called")
+
+
+def test_run_once_does_not_advance_state_when_csv_read_fails(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+
+    sent = run_once(
+        data_source=BrokenDataSource(),
+        sales_filter=DummyFilter(),
+        image_provider=DummyImageProvider(),
+        state_file=state_file,
+        webhook_client=DummyClient(),
+        max_images=8,
+        dry_run=False,
+    )
+
+    assert sent == []
+    assert state_file.exists()
+    assert '"last_scan_at": null' in state_file.read_text(encoding="utf-8")

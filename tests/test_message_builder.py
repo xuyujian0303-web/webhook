@@ -32,3 +32,31 @@ def test_message_builder_renders_order_details_and_limits_images() -> None:
     assert "6901111111111" in message
     assert "![](http://127.0.0.1:8123/6901111111111.jpg)" in message
     assert "还有 1 张图片未展示" in message
+
+
+def test_message_builder_truncates_when_content_exceeds_limit() -> None:
+    order = SalesOrder(
+        order_no="SO-LONG",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=9999,
+        items=[
+            SalesLineItem(barcode=f"690{i:010d}", style_no=f"STYLE-{i}", unit_price=100 + i)
+            for i in range(20)
+        ],
+    )
+
+    image_urls = {
+        item.barcode: f"http://127.0.0.1:8123/{item.barcode}.jpg" for item in order.items
+    }
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls=image_urls,
+        max_images=8,
+        max_bytes=1200,
+    )
+
+    assert len(message.encode("utf-8")) <= 1200
+    assert "商品明细已截断" in message
