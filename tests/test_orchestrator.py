@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wecom_sales_webhook_bot.filters import FilterResult
+from wecom_sales_webhook_bot.cli import build_parser
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 from wecom_sales_webhook_bot.orchestrator import run_once
 from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
@@ -108,3 +109,15 @@ def test_run_once_sends_only_new_matching_orders(tmp_path: Path) -> None:
 
     assert sent_again == []
     assert len(client.messages) == 1
+
+
+def test_cli_exposes_run_once_schedule_and_clear_state_commands() -> None:
+    parser = build_parser()
+
+    run_once_args = parser.parse_args(["run-once", "--config", "config.yaml"])
+    clear_state_args = parser.parse_args(["clear-state", "--config", "config.yaml"])
+    schedule_args = parser.parse_args(["schedule", "--config", "config.yaml"])
+
+    assert run_once_args.command == "run-once"
+    assert clear_state_args.command == "clear-state"
+    assert schedule_args.command == "schedule"
