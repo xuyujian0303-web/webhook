@@ -29,3 +29,15 @@ class PushStateStore:
         payload = self._read()
         payload["pushed_orders"][order_no] = sold_at.isoformat()
         self._write(payload)
+
+    def get_last_scan_at(self) -> datetime | None:
+        raw = self._read()["last_scan_at"]
+        return datetime.fromisoformat(raw) if raw else None
+
+    def set_last_scan_at(self, scanned_at: datetime) -> None:
+        payload = self._read()
+        payload["last_scan_at"] = scanned_at.isoformat()
+        self._write(payload)
+
+    def clear(self) -> None:
+        self._write({"last_scan_at": None, "pushed_orders": {}})
