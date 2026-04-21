@@ -25,3 +25,17 @@ runtime:
   max_images_per_message: 8
   state_file: ./var/push-state.json
   dry_run: true
+
+backend:
+  database_url: sqlite:///./var/app.db
+  secret_key: replace-me
+  host: 0.0.0.0
+  port: 5000
+  bootstrap_admin_username: admin
+  bootstrap_admin_password: change-me
+
+api:
+  sales_base_url: https://internal.example.com
+  sales_token: replace-me
+  sales_path: /sales/query
+  timeout_seconds: 10

@@ -3,43 +3,39 @@ from pathlib import Path
 from wecom_sales_webhook_bot.config import load_config
 
 
-def test_load_config_reads_threshold_and_style_whitelist(tmp_path: Path) -> None:
+def test_load_config_reads_backend_database_auth_and_api_settings(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
         """
-csv:
-  path: ./data/sales.csv
-  encoding: utf-8-sig
-  field_mapping:
-    order_no: 销售单号
-    sold_at: 销售日期（时间）
-    store_name: 销售门店
-    total_amount: 销售单总额
-    barcode: 商品条码
-    style_no: 产品款号
-    unit_price: 产品单价
-image_service:
-  host: 127.0.0.1
-  port: 8123
-  image_dir: ./images
 wecom:
   webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
   timeout_seconds: 5
   retry_times: 2
-rules:
-  amount_threshold: 1000
-  style_whitelist: ["A1001", "B2002"]
 runtime:
-  scan_interval_seconds: 600
+  scan_interval_seconds: 1200
   max_images_per_message: 8
-  state_file: ./var/push-state.json
   dry_run: false
+backend:
+  database_url: sqlite:///./var/app.db
+  secret_key: test-secret
+  host: 127.0.0.1
+  port: 5000
+  bootstrap_admin_username: admin
+  bootstrap_admin_password: admin123
+api:
+  sales_base_url: https://internal.example.com
+  sales_token: test-token
+  sales_path: /sales/query
+  timeout_seconds: 10
 """.strip(),
         encoding="utf-8",
     )
 
     config = load_config(config_file)
 
-    assert config.rules.amount_threshold == 1000
-    assert config.rules.style_whitelist == {"A1001", "B2002"}
-    assert config.runtime.max_images_per_message == 8
+    assert config.backend.database_url == "sqlite:///./var/app.db"
+    assert config.backend.secret_key == "test-secret"
+    assert config.backend.bootstrap_admin_username == "admin"
+    assert config.api.sales_base_url == "https://internal.example.com"
+    assert config.api.sales_path == "/sales/query"
+    assert config.api.timeout_seconds == 10

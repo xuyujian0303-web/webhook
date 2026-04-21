@@ -8,7 +8,11 @@ version = "0.1.0"
 description = "Enterprise WeChat sales webhook bot prototype"
 requires-python = ">=3.12"
 dependencies = [
+  "APScheduler>=3.10.4",
+  "Flask>=3.0.3",
+  "Flask-Login>=0.6.3",
   "PyYAML>=6.0.1",
+  "SQLAlchemy>=2.0.36",
   "requests>=2.32.0",
 ]
 
