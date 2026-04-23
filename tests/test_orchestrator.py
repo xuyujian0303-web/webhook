@@ -1,8 +1,11 @@
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
+from wecom_sales_webhook_bot.config import load_config
 from wecom_sales_webhook_bot.filters import FilterResult
-from wecom_sales_webhook_bot.cli import build_parser
+from wecom_sales_webhook_bot.cli import build_parser, validate_prototype_config
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 from wecom_sales_webhook_bot.orchestrator import run_once
 from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
@@ -121,6 +124,48 @@ def test_cli_exposes_run_once_schedule_and_clear_state_commands() -> None:
     assert run_once_args.command == "run-once"
     assert clear_state_args.command == "clear-state"
     assert schedule_args.command == "schedule"
+
+
+def test_run_once_validation_reports_missing_csv_field_mapping_keys(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+csv:
+  path: ./sales.csv
+  encoding: utf-8
+  field_mapping:
+    order_no: order_no
+image_service:
+  host: 127.0.0.1
+  port: 8000
+  image_dir: ./images
+wecom:
+  webhook_url: https://example.com
+  timeout_seconds: 3
+  retry_times: 1
+rules:
+  amount_threshold: 100
+  style_whitelist: [A,B]
+runtime:
+  scan_interval_seconds: 30
+  max_images_per_message: 2
+  state_file: ./state.json
+  dry_run: true
+""".strip(),
+        encoding="utf-8",
+    )
+    config = load_config(config_file)
+
+    with pytest.raises(ValueError) as exc_info:
+        validate_prototype_config("run-once", config)
+
+    message = str(exc_info.value)
+    assert "csv.field_mapping.sold_at" in message
+    assert "csv.field_mapping.store_name" in message
+    assert "csv.field_mapping.total_amount" in message
+    assert "csv.field_mapping.barcode" in message
+    assert "csv.field_mapping.style_no" in message
+    assert "csv.field_mapping.unit_price" in message
 
 
 class BrokenDataSource:

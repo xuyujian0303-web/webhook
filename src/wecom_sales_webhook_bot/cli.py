@@ -16,6 +16,17 @@ from wecom_sales_webhook_bot.state_store import PushStateStore
 from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
 
 
+REQUIRED_CSV_FIELD_MAPPING_KEYS = (
+    "order_no",
+    "sold_at",
+    "store_name",
+    "total_amount",
+    "barcode",
+    "style_no",
+    "unit_price",
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -32,6 +43,12 @@ def validate_prototype_config(command: str, config: AppConfig) -> None:
     if command in ("run-once", "schedule"):
         if config.csv is None:
             missing.append("csv")
+        else:
+            missing.extend(
+                f"csv.field_mapping.{key}"
+                for key in REQUIRED_CSV_FIELD_MAPPING_KEYS
+                if key not in config.csv.field_mapping
+            )
         if config.image_service is None:
             missing.append("image_service")
         if config.rules is None:
