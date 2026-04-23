@@ -1,7 +1,22 @@
 from __future__ import annotations
 
 from wecom_sales_webhook_bot.filters import FilterResult
-from wecom_sales_webhook_bot.models import SalesOrder
+from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
+
+
+def _format_reason(reason: str | None) -> str:
+    mapping = {
+        "amount_threshold": "高金额命中",
+        "style_whitelist": "款号命中",
+        "manual_test": "手动测试",
+    }
+    if reason is None:
+        return "未命中"
+    return mapping.get(reason, reason)
+
+
+def _resolve_image_url(item: SalesLineItem, image_urls: dict[str, str]) -> str | None:
+    return image_urls.get(item.barcode) or item.image_url
 
 
 def build_markdown_v2_message(
@@ -12,42 +27,60 @@ def build_markdown_v2_message(
     max_bytes: int = 4096,
 ) -> str:
     header = [
-        "# 销售晒单",
-        f"> 销售单号：`{order.order_no}`",
-        f"> 销售时间：`{order.sold_at:%Y-%m-%d %H:%M:%S}`",
-        f"> 门店：`{order.store_name}`",
-        f"> 总额：`{order.total_amount:.2f}`",
-        f"> 命中原因：`{filter_result.reason}`",
+        "# 零售晒单",
+        "## 成交摘要",
+        f"> **销售单号**：`{order.order_no}`",
+        f"> **门店**：`{order.store_name}`",
+        f"> **时间**：`{order.sold_at:%Y-%m-%d %H:%M:%S}`",
+        f"> **总额**：`{order.total_amount:.2f}`",
+        f"> **命中原因**：`{_format_reason(filter_result.reason)}`",
         "",
-        "## 商品明细",
+        "**商品信息**",
     ]
 
-    detail_lines = [
-        f"- 条码：`{item.barcode}` 款号：`{item.style_no}` 单价：`{item.unit_price:.2f}` 数量：`{item.quantity}`"
-        for item in order.items
-    ]
+    resolved_image_urls: dict[str, str] = {}
+    for item in order.items:
+        resolved_image_url = _resolve_image_url(item, image_urls)
+        if resolved_image_url:
+            resolved_image_urls[item.barcode] = resolved_image_url
 
     unique_barcodes: list[str] = []
     for item in order.items:
-        if item.barcode in image_urls and item.barcode not in unique_barcodes:
+        if item.barcode in resolved_image_urls and item.barcode not in unique_barcodes:
             unique_barcodes.append(item.barcode)
 
-    image_lines = ["", "## 商品图片"]
     displayed = unique_barcodes[:max_images]
-    for barcode in displayed:
-        image_lines.append(f"![]({image_urls[barcode]})")
+    displayed_set = set(displayed)
 
     omitted = len(unique_barcodes) - len(displayed)
+    detail_lines: list[str] = []
+    for item in order.items:
+        detail_lines.extend(
+            [
+                f"- **款号**：`{item.style_no}`",
+                f"  单价：`{item.unit_price:.2f}`",
+                f"  条码：`{item.barcode}`",
+            ]
+        )
+        if item.brand:
+            detail_lines.append(f"  品牌：`{item.brand}`")
+        if item.category:
+            detail_lines.append(f"  类别：`{item.category}`")
+        if item.barcode in displayed_set:
+            detail_lines.append(f"  ![]({resolved_image_urls[item.barcode]})")
+        elif item.barcode in resolved_image_urls:
+            detail_lines.append("  > 图片未展示")
+        else:
+            detail_lines.append("  > 暂无图片")
+        detail_lines.append("")
+
+    footer_lines: list[str] = []
     if omitted > 0:
-        image_lines.append(f"> 还有 {omitted} 张图片未展示")
+        footer_lines.append(f"> 还有 {omitted} 张图片未展示")
 
-    missing = [item.barcode for item in order.items if item.barcode not in image_urls]
-    if missing:
-        image_lines.append(f"> 缺失图片条码：{', '.join(missing)}")
-
-    lines = header + detail_lines + image_lines
-    while len("\n".join(lines).encode("utf-8")) > max_bytes and len(detail_lines) > 1:
-        detail_lines.pop()
-        lines = header + detail_lines + ["> 商品明细已截断"] + image_lines
+    lines = header + detail_lines + footer_lines
+    while len("\n".join(lines).encode("utf-8")) > max_bytes and len(detail_lines) > 4:
+        detail_lines = detail_lines[:-5]
+        lines = header + detail_lines + ["> 商品明细已截断"] + footer_lines
 
     return "\n".join(lines)

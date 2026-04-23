@@ -10,6 +10,9 @@ class SalesLineItem:
     style_no: str
     unit_price: float
     quantity: int = 1
+    brand: str | None = None
+    category: str | None = None
+    image_url: str | None = None
 
 
 @dataclass(frozen=True)
