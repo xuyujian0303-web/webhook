@@ -4,7 +4,7 @@ import argparse
 import time
 from pathlib import Path
 
-from wecom_sales_webhook_bot.config import load_config
+from wecom_sales_webhook_bot.config import load_config, AppConfig
 from wecom_sales_webhook_bot.csv_source import CsvSalesDataSource
 from wecom_sales_webhook_bot.filters import SalesFilter
 from wecom_sales_webhook_bot.image_service import (
@@ -27,10 +27,32 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def validate_prototype_config(command: str, config: AppConfig) -> None:
+    missing: list[str] = []
+    if command in ("run-once", "schedule"):
+        if config.csv is None:
+            missing.append("csv")
+        if config.image_service is None:
+            missing.append("image_service")
+        if config.rules is None:
+            missing.append("rules")
+        if config.runtime.state_file is None:
+            missing.append("runtime.state_file")
+    elif command == "serve-images":
+        if config.image_service is None:
+            missing.append("image_service")
+    elif command == "clear-state":
+        if config.runtime.state_file is None:
+            missing.append("runtime.state_file")
+    if missing:
+        raise ValueError(f"Command {command!r} requires config sections: {', '.join(missing)}")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     config = load_config(Path(args.config))
+    validate_prototype_config(args.command, config)
 
     if args.command == "serve-images":
         start_image_server(

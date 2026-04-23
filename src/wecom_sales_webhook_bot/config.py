@@ -74,24 +74,50 @@ def load_config(path: Path) -> AppConfig:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
     csv_section = raw.get("csv")
-    csv_cfg = CsvConfig(
-        path=Path(csv_section["path"]),
-        encoding=csv_section["encoding"],
-        field_mapping=dict(csv_section["field_mapping"]),
-    ) if csv_section else None
+    if csv_section is not None:
+        try:
+            path_val = csv_section["path"]
+            encoding_val = csv_section["encoding"]
+            mapping_val = csv_section["field_mapping"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in csv section: {e.args[0]!r}")
+        csv_cfg = CsvConfig(
+            path=Path(path_val),
+            encoding=encoding_val,
+            field_mapping=dict(mapping_val),
+        )
+    else:
+        csv_cfg = None
 
     img_section = raw.get("image_service")
-    img_cfg = ImageServiceConfig(
-        host=img_section["host"],
-        port=int(img_section["port"]),
-        image_dir=Path(img_section["image_dir"]),
-    ) if img_section else None
+    if img_section is not None:
+        try:
+            host_val = img_section["host"]
+            port_val = img_section["port"]
+            dir_val = img_section["image_dir"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in image_service section: {e.args[0]!r}")
+        img_cfg = ImageServiceConfig(
+            host=host_val,
+            port=int(port_val),
+            image_dir=Path(dir_val),
+        )
+    else:
+        img_cfg = None
 
     rules_section = raw.get("rules")
-    rules_cfg = RulesConfig(
-        amount_threshold=float(rules_section["amount_threshold"]),
-        style_whitelist=set(rules_section["style_whitelist"]),
-    ) if rules_section else None
+    if rules_section is not None:
+        try:
+            amt_val = rules_section["amount_threshold"]
+            whitelist_val = rules_section["style_whitelist"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in rules section: {e.args[0]!r}")
+        rules_cfg = RulesConfig(
+            amount_threshold=float(amt_val),
+            style_whitelist=set(whitelist_val),
+        )
+    else:
+        rules_cfg = None
 
     rt = raw.get("runtime", {})
     state_file = Path(rt["state_file"]) if "state_file" in rt else None
@@ -103,22 +129,44 @@ def load_config(path: Path) -> AppConfig:
     )
 
     backend_section = raw.get("backend")
-    backend_cfg = BackendConfig(
-        database_url=backend_section["database_url"],
-        secret_key=backend_section["secret_key"],
-        host=backend_section["host"],
-        port=int(backend_section["port"]),
-        bootstrap_admin_username=backend_section["bootstrap_admin_username"],
-        bootstrap_admin_password=backend_section["bootstrap_admin_password"],
-    ) if backend_section else None
+    if backend_section is not None:
+        try:
+            db_url = backend_section["database_url"]
+            secret_val = backend_section["secret_key"]
+            host_b = backend_section["host"]
+            port_b = backend_section["port"]
+            admin_u = backend_section["bootstrap_admin_username"]
+            admin_p = backend_section["bootstrap_admin_password"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in backend section: {e.args[0]!r}")
+        backend_cfg = BackendConfig(
+            database_url=db_url,
+            secret_key=secret_val,
+            host=host_b,
+            port=int(port_b),
+            bootstrap_admin_username=admin_u,
+            bootstrap_admin_password=admin_p,
+        )
+    else:
+        backend_cfg = None
 
     api_section = raw.get("api")
-    api_cfg = ApiConfig(
-        sales_base_url=api_section["sales_base_url"],
-        sales_token=api_section["sales_token"],
-        sales_path=api_section["sales_path"],
-        timeout_seconds=int(api_section["timeout_seconds"]),
-    ) if api_section else None
+    if api_section is not None:
+        try:
+            base_val = api_section["sales_base_url"]
+            token_val = api_section["sales_token"]
+            path_s = api_section["sales_path"]
+            timeout_val = api_section["timeout_seconds"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in api section: {e.args[0]!r}")
+        api_cfg = ApiConfig(
+            sales_base_url=base_val,
+            sales_token=token_val,
+            sales_path=path_s,
+            timeout_seconds=int(timeout_val),
+        )
+    else:
+        api_cfg = None
 
     return AppConfig(
         csv=csv_cfg,
