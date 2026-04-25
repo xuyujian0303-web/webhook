@@ -123,6 +123,42 @@ def test_message_builder_prefers_dict_image_over_item_image() -> None:
     assert "https://img.example.com/fallback.jpg" not in message
 
 
+def test_message_builder_limits_mixed_dict_and_item_images() -> None:
+    order = SalesOrder(
+        order_no="SO-005",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=1800,
+        items=[
+            SalesLineItem(
+                barcode="6905555555555",
+                style_no="E5005",
+                unit_price=900,
+                image_url="https://img.example.com/item.jpg",
+            ),
+            SalesLineItem(
+                barcode="6906666666666",
+                style_no="F6006",
+                unit_price=900,
+                image_url="https://img.example.com/hidden-item.jpg",
+            ),
+        ],
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="manual_test"),
+        image_urls={"6905555555555": "https://img.example.com/dict.jpg"},
+        max_images=1,
+    )
+
+    assert "https://img.example.com/dict.jpg" in message
+    assert "https://img.example.com/item.jpg" not in message
+    assert "https://img.example.com/hidden-item.jpg" not in message
+    assert "> 图片未展示" in message
+    assert "还有 1 张图片未展示" in message
+
+
 def test_message_builder_truncates_when_content_exceeds_limit() -> None:
     order = SalesOrder(
         order_no="SO-LONG",
