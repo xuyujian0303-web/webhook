@@ -53,34 +53,35 @@ def build_markdown_v2_message(
     displayed_set = set(displayed)
 
     omitted = len(unique_barcodes) - len(displayed)
-    detail_lines: list[str] = []
+    item_blocks: list[list[str]] = []
     for item in order.items:
-        detail_lines.extend(
-            [
-                f"- **款号**：`{item.style_no}`",
-                f"  单价：`{item.unit_price:.2f}`",
-                f"  条码：`{item.barcode}`",
-            ]
-        )
+        block = [
+            f"- **款号**：`{item.style_no}`",
+            f"  单价：`{item.unit_price:.2f}`",
+            f"  条码：`{item.barcode}`",
+        ]
         if item.brand:
-            detail_lines.append(f"  品牌：`{item.brand}`")
+            block.append(f"  品牌：`{item.brand}`")
         if item.category:
-            detail_lines.append(f"  类别：`{item.category}`")
+            block.append(f"  类别：`{item.category}`")
         if item.barcode in displayed_set:
-            detail_lines.append(f"  ![]({resolved_image_urls[item.barcode]})")
+            block.append(f"  ![]({resolved_image_urls[item.barcode]})")
         elif item.barcode in resolved_image_urls:
-            detail_lines.append("  > 图片未展示")
+            block.append("  > 图片未展示")
         else:
-            detail_lines.append("  > 暂无图片")
-        detail_lines.append("")
+            block.append("  > 暂无图片")
+        block.append("")
+        item_blocks.append(block)
 
     footer_lines: list[str] = []
     if omitted > 0:
         footer_lines.append(f"> 还有 {omitted} 张图片未展示")
 
+    detail_lines = [line for block in item_blocks for line in block]
     lines = header + detail_lines + footer_lines
-    while len("\n".join(lines).encode("utf-8")) > max_bytes and len(detail_lines) > 4:
-        detail_lines = detail_lines[:-5]
+    while len("\n".join(lines).encode("utf-8")) > max_bytes and item_blocks:
+        item_blocks = item_blocks[:-1]
+        detail_lines = [line for block in item_blocks for line in block]
         lines = header + detail_lines + ["> 商品明细已截断"] + footer_lines
 
     return "\n".join(lines)

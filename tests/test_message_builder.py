@@ -185,3 +185,49 @@ def test_message_builder_truncates_when_content_exceeds_limit() -> None:
 
     assert len(message.encode("utf-8")) <= 1200
     assert "商品明细已截断" in message
+
+
+def test_message_builder_truncates_whole_item_blocks_with_optional_fields() -> None:
+    order = SalesOrder(
+        order_no="SO-LONG-OPTIONAL",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=9999,
+        items=[
+            SalesLineItem(
+                barcode="6907777777777",
+                style_no="STYLE-KEEP",
+                unit_price=1500,
+                brand="Brand-A",
+                category="外套",
+                image_url="https://img.example.com/keep.jpg",
+            ),
+            SalesLineItem(
+                barcode="6908888888888",
+                style_no="STYLE-DROP",
+                unit_price=1600,
+                brand="Brand-B",
+                category="连衣裙",
+                image_url="https://img.example.com/drop.jpg",
+            ),
+        ],
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls={},
+        max_images=8,
+        max_bytes=260,
+    )
+
+    assert len(message.encode("utf-8")) <= 260
+    assert "商品明细已截断" in message
+    assert "STYLE-DROP" not in message
+    assert "Brand-B" not in message
+    assert "连衣裙" not in message
+    assert "https://img.example.com/drop.jpg" not in message
+    if "STYLE-KEEP" not in message:
+        assert "Brand-A" not in message
+        assert "外套" not in message
+        assert "https://img.example.com/keep.jpg" not in message
