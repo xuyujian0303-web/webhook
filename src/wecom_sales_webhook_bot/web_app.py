@@ -5,7 +5,13 @@ from flask_login import LoginManager, UserMixin, login_required, login_user
 
 from wecom_sales_webhook_bot.auth import hash_password, verify_password
 from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
-from wecom_sales_webhook_bot.rule_models import RuleCondition, RuleGroup, UserAccount
+from wecom_sales_webhook_bot.rule_models import (
+    JobRun,
+    PushRecord,
+    RuleCondition,
+    RuleGroup,
+    UserAccount,
+)
 
 
 class LoginUser(UserMixin):
@@ -111,5 +117,24 @@ def create_app(config: dict) -> Flask:
 
             session.commit()
         return redirect(url_for("rules_page"))
+
+    @app.get("/records")
+    @login_required
+    def records_page():
+        with session_factory() as session:
+            records = (
+                session.query(PushRecord)
+                .order_by(PushRecord.created_at.desc())
+                .limit(50)
+                .all()
+            )
+        return render_template("push_records.html", records=records)
+
+    @app.get("/status")
+    @login_required
+    def status_page():
+        with session_factory() as session:
+            last_run = session.query(JobRun).order_by(JobRun.created_at.desc()).first()
+        return render_template("system_status.html", last_run=last_run)
 
     return app

@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>推送记录</h1>
+{% for record in records %}
+<div>{{ record.order_no }} | {{ record.store_name }} | {{ record.status }}</div>
+{% endfor %}
+{% endblock %}

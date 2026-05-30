@@ -15,3 +15,9 @@
 - `python -m wecom_sales_webhook_bot.cli schedule --config config.yaml`
 - `python -m wecom_sales_webhook_bot.cli serve-images --config config.yaml`
 - `python -m wecom_sales_webhook_bot.cli clear-state --config config.yaml`
+
+## Admin Backend
+
+- `python -m wecom_sales_webhook_bot.cli run-server --config config.yaml`
+- 登录地址：`http://127.0.0.1:5000/login`
+- 后台默认使用 SQLite 保存用户、规则、推送记录和扫描状态

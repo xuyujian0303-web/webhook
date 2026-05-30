@@ -14,6 +14,7 @@ from wecom_sales_webhook_bot.image_service import (
 from wecom_sales_webhook_bot.orchestrator import run_once
 from wecom_sales_webhook_bot.state_store import PushStateStore
 from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
+from wecom_sales_webhook_bot.web_app import create_app
 
 
 REQUIRED_CSV_FIELD_MAPPING_KEYS = (
@@ -31,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("run-once", "schedule", "serve-images", "clear-state"):
+    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server"):
         command = subparsers.add_parser(name)
         command.add_argument("--config", required=True)
 
@@ -69,6 +70,23 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     config = load_config(Path(args.config))
+
+    if args.command == "run-server":
+        if config.backend is None:
+            raise ValueError("Command 'run-server' requires config section: backend")
+        app = create_app(
+            {
+                "SECRET_KEY": config.backend.secret_key,
+                "DATABASE_URL": config.backend.database_url,
+                "BOOTSTRAP_ADMIN": {
+                    "username": config.backend.bootstrap_admin_username,
+                    "password": config.backend.bootstrap_admin_password,
+                },
+            }
+        )
+        app.run(host=config.backend.host, port=config.backend.port)
+        return
+
     validate_prototype_config(args.command, config)
 
     if args.command == "serve-images":

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<div>最近一次扫描：{{ last_run.created_at if last_run else "暂无" }}</div>
+<div>最近成功数量：{{ last_run.success_count if last_run else 0 }}</div>
+<div>最近失败数量：{{ last_run.failed_count if last_run else 0 }}</div>
+{% endblock %}
