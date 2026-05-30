@@ -19,6 +19,17 @@ def _resolve_image_url(item: SalesLineItem, image_urls: dict[str, str]) -> str |
     return image_urls.get(item.barcode) or item.image_url
 
 
+def _join_lines(lines: list[str]) -> str:
+    return "\n".join(lines)
+
+
+def _trim_lines_to_max_bytes(lines: list[str], max_bytes: int) -> str:
+    trimmed = list(lines)
+    while trimmed and len(_join_lines(trimmed).encode("utf-8")) > max_bytes:
+        trimmed.pop()
+    return _join_lines(trimmed)
+
+
 def build_markdown_v2_message(
     order: SalesOrder,
     filter_result: FilterResult,
@@ -26,6 +37,11 @@ def build_markdown_v2_message(
     max_images: int,
     max_bytes: int = 4096,
 ) -> str:
+    if max_images < 0:
+        raise ValueError("max_images must be >= 0")
+    if max_bytes < 0:
+        raise ValueError("max_bytes must be >= 0")
+
     header = [
         "# 零售晒单",
         "## 成交摘要",
@@ -79,9 +95,9 @@ def build_markdown_v2_message(
 
     detail_lines = [line for block in item_blocks for line in block]
     lines = header + detail_lines + footer_lines
-    while len("\n".join(lines).encode("utf-8")) > max_bytes and item_blocks:
+    while len(_join_lines(lines).encode("utf-8")) > max_bytes and item_blocks:
         item_blocks = item_blocks[:-1]
         detail_lines = [line for block in item_blocks for line in block]
         lines = header + detail_lines + ["> 商品明细已截断"] + footer_lines
 
-    return "\n".join(lines)
+    return _trim_lines_to_max_bytes(lines, max_bytes)

@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
@@ -231,3 +233,56 @@ def test_message_builder_truncates_whole_item_blocks_with_optional_fields() -> N
         assert "Brand-A" not in message
         assert "外套" not in message
         assert "https://img.example.com/keep.jpg" not in message
+
+
+def test_message_builder_keeps_output_within_max_bytes_even_when_header_is_too_large() -> None:
+    order = SalesOrder(
+        order_no="SO-SMALL",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=9999,
+        items=[
+            SalesLineItem(
+                barcode="6909999999999",
+                style_no="STYLE-SMALL",
+                unit_price=999,
+            ),
+        ],
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls={},
+        max_images=8,
+        max_bytes=80,
+    )
+
+    assert len(message.encode("utf-8")) <= 80
+
+
+def test_message_builder_rejects_negative_max_images() -> None:
+    order = SalesOrder(
+        order_no="SO-NEGATIVE",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=1200,
+        items=[
+            SalesLineItem(
+                barcode="6901010101010",
+                style_no="NEG-1",
+                unit_price=600,
+                image_url="https://img.example.com/neg.jpg",
+            ),
+        ],
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        build_markdown_v2_message(
+            order=order,
+            filter_result=FilterResult(matched=True, reason="manual_test"),
+            image_urls={},
+            max_images=-1,
+        )
+
+    assert "max_images" in str(exc_info.value)
