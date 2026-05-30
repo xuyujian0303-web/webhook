@@ -5,7 +5,7 @@ from flask_login import LoginManager, UserMixin, login_required, login_user
 
 from wecom_sales_webhook_bot.auth import hash_password, verify_password
 from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
-from wecom_sales_webhook_bot.rule_models import UserAccount
+from wecom_sales_webhook_bot.rule_models import RuleCondition, RuleGroup, UserAccount
 
 
 class LoginUser(UserMixin):
@@ -22,6 +22,14 @@ def create_app(config: dict) -> Flask:
     login_manager = LoginManager()
     login_manager.login_view = "login_page"
     login_manager.init_app(app)
+
+    @login_manager.user_loader
+    def load_user(user_id: str):
+        with session_factory() as session:
+            user = session.get(UserAccount, int(user_id))
+            if user is None or not user.is_active:
+                return None
+            return LoginUser(user.id)
 
     with session_factory() as session:
         if session.query(UserAccount).count() == 0:
@@ -56,6 +64,52 @@ def create_app(config: dict) -> Flask:
     @app.get("/rules")
     @login_required
     def rules_page():
-        return "rules"
+        with session_factory() as session:
+            rules = session.query(RuleGroup).order_by(RuleGroup.updated_at.desc()).all()
+        return render_template("rules.html", rules=rules)
+
+    @app.get("/rules/new")
+    @login_required
+    def rule_new_page():
+        return render_template("rule_edit.html")
+
+    @app.post("/rules/new")
+    @login_required
+    def rule_new_submit():
+        with session_factory() as session:
+            rule = RuleGroup(
+                name=request.form["name"],
+                is_enabled=request.form.get("is_enabled") == "on",
+                match_mode=request.form["match_mode"],
+                updated_by="admin",
+            )
+            session.add(rule)
+            session.flush()
+
+            def add_condition(field_name: str, operator: str, value_json: str) -> None:
+                if value_json:
+                    session.add(
+                        RuleCondition(
+                            rule_group_id=rule.id,
+                            field_name=field_name,
+                            operator=operator,
+                            value_json=value_json,
+                        )
+                    )
+
+            add_condition("total_amount", "gte", request.form["amount_threshold"])
+            add_condition("style_no", "in", request.form["style_list"])
+            add_condition("store_name", "in", request.form["store_list"])
+            if request.form["time_start"] and request.form["time_end"]:
+                add_condition(
+                    "sold_at",
+                    "between_time",
+                    f"{request.form['time_start']},{request.form['time_end']}",
+                )
+            add_condition("brand", "in", request.form["brand_list"])
+            add_condition("category", "in", request.form["category_list"])
+
+            session.commit()
+        return redirect(url_for("rules_page"))
 
     return app

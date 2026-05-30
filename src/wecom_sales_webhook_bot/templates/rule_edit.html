@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block body %}
+<form method="post" action="/rules/new">
+  <input name="name" />
+  <input name="is_enabled" type="checkbox" checked />
+  <select name="match_mode">
+    <option value="any">any</option>
+    <option value="all">all</option>
+  </select>
+  <input name="amount_threshold" />
+  <input name="style_list" />
+  <input name="store_list" />
+  <input name="time_start" />
+  <input name="time_end" />
+  <input name="brand_list" />
+  <input name="category_list" />
+  <button type="submit">保存</button>
+</form>
+{% endblock %}

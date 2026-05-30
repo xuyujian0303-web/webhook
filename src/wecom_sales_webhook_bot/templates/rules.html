@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>规则列表</h1>
+{% for rule in rules %}
+<div>{{ rule.name }} | {{ rule.match_mode }}</div>
+{% endfor %}
+{% endblock %}
