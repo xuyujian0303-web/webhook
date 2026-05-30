@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block body %}
+<form method="post" action="/login">
+  <label>用户名<input name="username" /></label>
+  <label>密码<input name="password" type="password" /></label>
+  <button type="submit">登录</button>
+</form>
+{% endblock %}
