@@ -1,19 +1,18 @@
-{% extends "base.html" %}
+﻿{% extends "base.html" %}
 {% block body %}
-<form method="post" action="/rules/new">
-  <input name="name" />
-  <input name="is_enabled" type="checkbox" checked />
-  <select name="match_mode">
-    <option value="any">any</option>
-    <option value="all">all</option>
-  </select>
-  <input name="amount_threshold" />
-  <input name="style_list" />
-  <input name="store_list" />
-  <input name="time_start" />
-  <input name="time_end" />
-  <input name="brand_list" />
-  <input name="category_list" />
-  <button type="submit">保存</button>
-</form>
+<section class="panel"><div class="page-header"><h1 class="page-title">新建规则</h1><p class="page-copy">规则条件按“任一满足”或“全部满足”判断；订单日期范围始终是强制限制。每日推送时段请到“运行配置”设置。</p></div>
+<div class="content">{% if errors %}<div class="alert error">{% for item in errors %}<div>{{ item }}</div>{% endfor %}</div>{% endif %}
+<form method="post" action="/rules/new"><div class="form-grid"><section class="form-section"><h2>基础信息</h2>
+<div class="field"><label for="name">规则名称</label><input id="name" name="name" value="{{ form_data.get('name', '') }}" /><div class="hint">必填，例如“大额订单推送”。</div></div>
+<div class="field"><label for="match_mode">匹配方式</label><select id="match_mode" name="match_mode"><option value="any" {% if form_data.get('match_mode') == 'any' %}selected{% endif %}>任一满足</option><option value="all" {% if form_data.get('match_mode', 'all') == 'all' %}selected{% endif %}>全部满足</option></select><div class="hint">任一满足：金额、门店等任一条件命中；全部满足：所有已填写条件都要命中。日期范围始终必须满足。</div></div>
+<div class="field"><label><input type="checkbox" name="is_enabled" {% if form_data.get('is_enabled', 'on') == 'on' %}checked{% endif %} /> 启用这条规则</label></div></section>
+<section class="form-section"><h2>筛选条件</h2>
+<div class="field"><label for="amount_threshold">金额阈值</label><input id="amount_threshold" name="amount_threshold" value="{{ form_data.get('amount_threshold', '') }}" /><div class="hint">填写数字，例如 10000，表示整单金额不低于 10000。</div></div>
+<div class="field"><label for="style_list">款号列表</label><input id="style_list" name="style_list" value="{{ form_data.get('style_list', '') }}" /><div class="hint">可留空；多个款号用英文逗号分隔，例如 PA17047BNY0,PA17048BNY0。</div></div>
+<div class="field"><label for="store_list">门店列表</label><input id="store_list" name="store_list" value="{{ form_data.get('store_list', '') }}" /><div class="hint">可留空；多个门店用英文逗号分隔，例如 G621,G622。</div></div>
+<div class="field"><label for="brand_list">品牌列表</label><input id="brand_list" name="brand_list" value="{{ form_data.get('brand_list', '') }}" /><div class="hint">可留空；多个品牌用英文逗号分隔，例如 Brand-A,Brand-B。</div></div>
+<div class="field"><label for="category_list">品类列表</label><input id="category_list" name="category_list" value="{{ form_data.get('category_list', '') }}" /><div class="hint">可留空；多个品类用英文逗号分隔，例如 外套,裤装。</div></div>
+<div class="form-grid"><div class="field"><label for="order_date_start">订单开始日期</label><input id="order_date_start" name="order_date_start" type="date" value="{{ form_data.get('order_date_start', '') }}" /><div class="hint">格式 YYYY-MM-DD，例如 2026-08-24；可留空，留空时默认从脚本启动当天开始。</div></div>
+<div class="field"><label for="order_date_end">订单结束日期</label><input id="order_date_end" name="order_date_end" type="date" value="{{ form_data.get('order_date_end', '') }}" /><div class="hint">格式 YYYY-MM-DD，例如 2026-08-31；可留空，留空表示不设结束日期。</div></div></div>
+</section></div><div class="action-row" style="margin-top:18px;"><a class="button secondary" href="{{ url_for('rules_page') }}">返回规则列表</a><button class="button" type="submit">保存规则</button></div></form></div></section>
 {% endblock %}
