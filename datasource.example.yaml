@@ -1,0 +1,69 @@
+# IT only needs to replace the values of “数据库字段名” and the SELECT source table.
+# The SELECT aliases after AS are fixed internal keys and must not be changed.
+sqlserver:
+  connection_string: Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=wecom_sales_test;Trusted_Connection=yes;TrustServerCertificate=yes;
+  query: |
+    SELECT
+      [IT实际销售单号列] AS order_no,
+      [IT实际销售时间列] AS sold_at,
+      [IT实际门店列] AS store_name,
+      [IT实际销售总金额列] AS total_amount,
+      [IT实际销售人员列] AS salesperson,
+      [IT实际整单件数列] AS total_quantity,
+      [IT实际顾客来源列] AS customer_source,
+      [IT实际助力素材列] AS promotion_material,
+      [IT实际卡类型列] AS card_type,
+      [IT实际商品条码列] AS barcode,
+      [IT实际款号列] AS style_no,
+      [IT实际商品单价列] AS unit_price,
+      [IT实际商品品牌列] AS brand,
+      [IT实际商品品类列] AS category,
+      [IT实际商品图片URL列] AS image_url
+    FROM dbo.IT实际销售明细表
+    ORDER BY sold_at ASC, order_no ASC
+  field_mapping:
+    销售单号:
+      数据库字段名: IT实际销售单号列
+      模板变量: order.order_no
+    销售时间:
+      数据库字段名: IT实际销售时间列
+      模板变量: order.sold_at
+    门店:
+      数据库字段名: IT实际门店列
+      模板变量: order.store_name
+    销售总金额:
+      数据库字段名: IT实际销售总金额列
+      模板变量: order.total_amount
+    销售人员:
+      数据库字段名: IT实际销售人员列
+      模板变量: order.salesperson
+    整单件数:
+      数据库字段名: IT实际整单件数列
+      模板变量: order.total_quantity
+    顾客来源:
+      数据库字段名: IT实际顾客来源列
+      模板变量: order.customer_source
+    助力素材:
+      数据库字段名: IT实际助力素材列
+      模板变量: order.promotion_material
+    卡类型:
+      数据库字段名: IT实际卡类型列
+      模板变量: order.card_type
+    商品条码:
+      数据库字段名: IT实际商品条码列
+      模板变量: item.barcode
+    款号:
+      数据库字段名: IT实际款号列
+      模板变量: item.style_no
+    商品单价:
+      数据库字段名: IT实际商品单价列
+      模板变量: item.unit_price
+    商品品牌:
+      数据库字段名: IT实际商品品牌列
+      模板变量: item.brand
+    商品品类:
+      数据库字段名: IT实际商品品类列
+      模板变量: item.category
+    商品图片URL:
+      数据库字段名: IT实际商品图片URL列
+      模板变量: item.image_url

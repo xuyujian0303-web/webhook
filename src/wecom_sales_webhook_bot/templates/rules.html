@@ -1,7 +1,63 @@
 {% extends "base.html" %}
 {% block body %}
-<h1>规则列表</h1>
-{% for rule in rules %}
-<div>{{ rule.name }} | {{ rule.match_mode }}</div>
-{% endfor %}
+<section class="panel">
+  <div class="page-header">
+    <div class="action-row">
+      <div>
+        <h1 class="page-title">规则管理</h1>
+        <p class="page-copy">在这里快速查看启用状态、匹配方式与筛选摘要。</p>
+      </div>
+      <a class="button" href="{{ url_for('rule_new_page') }}">新建规则</a>
+    </div>
+  </div>
+  <div class="content">
+    {% if not rules %}
+    <div class="empty-state">
+      <p>还没有规则</p>
+      <p>先创建第一条规则，后续再从手动测试页验证 CSV 与本地图片链路。</p>
+    </div>
+    {% else %}
+    <div class="grid">
+      {% for rule in rules %}
+      <article class="rule-card">
+        <div class="action-row">
+          <h2>{{ rule.name }}</h2>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span class="badge {% if rule.status_label == '启用中' %}ok{% else %}neutral{% endif %}">
+              {{ rule.status_label }}
+            </span>
+            {% if rule.is_enabled %}
+            <form method="post" action="/rules/{{ rule.id }}/disable">
+              <button class="button secondary" type="submit">停用</button>
+            </form>
+            {% else %}
+            <form method="post" action="/rules/{{ rule.id }}/enable">
+              <button class="button secondary" type="submit">恢复</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/rules/{{ rule.id }}/delete" onsubmit="return confirm('确认删除这条规则吗？');">
+              <button class="button secondary" type="submit">删除</button>
+            </form>
+          </div>
+        </div>
+        <div class="rule-meta">
+          <span>匹配方式: {{ rule.match_mode_label }}</span>
+          <span>更新人: {{ rule.updated_by }}</span>
+          <span>更新时间: {{ rule.updated_at }}</span>
+        </div>
+        {% if rule.condition_summary %}
+        <ul class="summary-list">
+          {% for line in rule.condition_summary %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="page-copy">当前没有筛选条件。</p>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>
 {% endblock %}

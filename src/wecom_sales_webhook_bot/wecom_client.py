@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import time
 from typing import Protocol
@@ -34,6 +34,13 @@ class WeComWebhookClient:
                     timeout=self._timeout_seconds,
                 )
                 response.raise_for_status()
+                response_payload = response.json()
+                errcode = response_payload.get("errcode")
+                if errcode != 0:
+                    errmsg = response_payload.get("errmsg", "")
+                    raise RuntimeError(
+                        f"WeCom webhook rejected message: errcode={errcode} errmsg={errmsg}"
+                    )
                 return
             except Exception as exc:  # noqa: BLE001
                 last_error = exc

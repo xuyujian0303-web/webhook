@@ -71,3 +71,11 @@ class JobRun(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, nullable=False
     )
+
+
+class GlobalSetting(Base):
+    __tablename__ = "global_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    setting_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    setting_json: Mapped[str] = mapped_column(Text, nullable=False)

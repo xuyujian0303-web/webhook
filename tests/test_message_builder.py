@@ -2,6 +2,7 @@ from datetime import datetime
 
 import pytest
 
+from wecom_sales_webhook_bot.format_settings import normalize_format_settings
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
@@ -37,7 +38,7 @@ def test_message_builder_renders_order_details_and_limits_images() -> None:
     assert "**商品信息**" in message
     assert "- **款号**：`A1001`" in message
     assert "条码：`6901111111111`" in message
-    assert "![](http://127.0.0.1:8123/6901111111111.jpg)" in message
+    assert "![A1001.jpg](http://127.0.0.1:8123/6901111111111.jpg)" in message
     assert "- **款号**：`B2002`" in message
     assert "> 图片未展示" in message
     assert "还有 1 张图片未展示" in message
@@ -92,6 +93,7 @@ def test_message_builder_uses_item_remote_image_and_renders_brand_and_category()
     )
 
     assert "https://img.example.com/p1.jpg" in message
+    assert "![C3003.jpg](https://img.example.com/p1.jpg)" in message
     assert "Brand-A" in message
     assert "外套" in message
 
@@ -122,6 +124,7 @@ def test_message_builder_prefers_dict_image_over_item_image() -> None:
     )
 
     assert "https://img.example.com/override.jpg" in message
+    assert "![D4004.jpg](https://img.example.com/override.jpg)" in message
     assert "https://img.example.com/fallback.jpg" not in message
 
 
@@ -155,6 +158,7 @@ def test_message_builder_limits_mixed_dict_and_item_images() -> None:
     )
 
     assert "https://img.example.com/dict.jpg" in message
+    assert "![E5005.jpg](https://img.example.com/dict.jpg)" in message
     assert "https://img.example.com/item.jpg" not in message
     assert "https://img.example.com/hidden-item.jpg" not in message
     assert "> 图片未展示" in message
@@ -286,3 +290,81 @@ def test_message_builder_rejects_negative_max_images() -> None:
         )
 
     assert "max_images" in str(exc_info.value)
+
+
+def test_message_builder_hides_match_reason_and_renames_total_amount_label() -> None:
+    order = SalesOrder(
+        order_no="SO-010",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=1200,
+        items=[SalesLineItem(barcode="6901111111111", style_no="A1001", unit_price=699)],
+    )
+
+    settings = normalize_format_settings(
+        {
+            "preset": "standard",
+            "fields": {
+                "match_reason": {"enabled": False, "label": "命中原因"},
+                "total_amount": {"enabled": True, "label": "成交金额"},
+            },
+        }
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls={},
+        max_images=8,
+        format_settings=settings,
+    )
+
+    assert "命中原因" not in message
+    assert "成交金额" in message
+    assert "总金额" not in message
+
+
+def test_message_builder_uses_compact_preset_heading() -> None:
+    order = SalesOrder(
+        order_no="SO-011",
+        sold_at=datetime(2026, 4, 20, 10, 0, 0),
+        store_name="上海一店",
+        total_amount=1200,
+        items=[SalesLineItem(barcode="6901111111111", style_no="A1001", unit_price=699)],
+    )
+
+    settings = normalize_format_settings({"preset": "compact", "fields": {}})
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls={},
+        max_images=8,
+        format_settings=settings,
+    )
+
+    assert "核心信息" in message or "**商品**" in message
+
+
+def test_message_builder_renders_saved_template_body() -> None:
+    order = SalesOrder(
+        order_no="SO-300",
+        sold_at=datetime(2026, 6, 5, 10, 50, 0),
+        store_name="G609",
+        total_amount=21500,
+        salesperson="张三",
+        items=[SalesLineItem(barcode="B1", style_no="S1", unit_price=21500)],
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="amount_threshold"),
+        image_urls={"B1": "https://img.example.com/p1.jpg"},
+        max_images=8,
+        template_body="# 模板测试\n> {{ order.salesperson }}\n{% for item in order.items %}{{ item.style_no }} {{ item.image_url }}{% endfor %}",
+    )
+
+    assert "# 模板测试" in message
+    assert "> 张三" in message
+    assert "S1" in message
+    assert "S1 https://img.example.com/p1.jpg" in message

@@ -1,8 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
 import yaml
 
 
@@ -18,6 +19,7 @@ class ImageServiceConfig:
     host: str
     port: int
     image_dir: Path
+    image_map_csv: Optional[Path]
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class RulesConfig:
 class RuntimeConfig:
     scan_interval_seconds: int
     max_images_per_message: int
+    push_interval_seconds: int
     state_file: Optional[Path]
     dry_run: bool
 
@@ -60,6 +63,12 @@ class ApiConfig:
 
 
 @dataclass(frozen=True)
+class DataSourceRefConfig:
+    kind: str
+    config_path: Path
+
+
+@dataclass(frozen=True)
 class AppConfig:
     csv: Optional[CsvConfig]
     image_service: Optional[ImageServiceConfig]
@@ -68,6 +77,7 @@ class AppConfig:
     runtime: RuntimeConfig
     backend: Optional[BackendConfig]
     api: Optional[ApiConfig]
+    data_source: Optional[DataSourceRefConfig]
 
 
 def load_config(path: Path) -> AppConfig:
@@ -97,10 +107,12 @@ def load_config(path: Path) -> AppConfig:
             dir_val = img_section["image_dir"]
         except KeyError as e:
             raise ValueError(f"Missing required key in image_service section: {e.args[0]!r}")
+        map_csv_val = img_section.get("image_map_csv")
         img_cfg = ImageServiceConfig(
             host=host_val,
             port=int(port_val),
             image_dir=Path(dir_val),
+            image_map_csv=Path(map_csv_val) if map_csv_val else None,
         )
     else:
         img_cfg = None
@@ -124,6 +136,7 @@ def load_config(path: Path) -> AppConfig:
     runtime_cfg = RuntimeConfig(
         scan_interval_seconds=int(rt["scan_interval_seconds"]),
         max_images_per_message=int(rt["max_images_per_message"]),
+        push_interval_seconds=int(rt.get("push_interval_seconds", 10)),
         state_file=state_file,
         dry_run=bool(rt.get("dry_run", False)),
     )
@@ -168,6 +181,20 @@ def load_config(path: Path) -> AppConfig:
     else:
         api_cfg = None
 
+    data_source_section = raw.get("data_source")
+    if data_source_section is not None:
+        try:
+            kind_val = data_source_section["kind"]
+            config_path_val = data_source_section["config_path"]
+        except KeyError as e:
+            raise ValueError(f"Missing required key in data_source section: {e.args[0]!r}")
+        data_source_cfg = DataSourceRefConfig(
+            kind=str(kind_val),
+            config_path=Path(config_path_val),
+        )
+    else:
+        data_source_cfg = None
+
     return AppConfig(
         csv=csv_cfg,
         image_service=img_cfg,
@@ -180,4 +207,5 @@ def load_config(path: Path) -> AppConfig:
         runtime=runtime_cfg,
         backend=backend_cfg,
         api=api_cfg,
+        data_source=data_source_cfg,
     )

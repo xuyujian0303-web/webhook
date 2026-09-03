@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,4 +21,9 @@ class SalesOrder:
     sold_at: datetime
     store_name: str
     total_amount: float
+    salesperson: str | None = None
+    total_quantity: int | float | str | None = None
+    customer_source: str | None = None
+    promotion_material: str | None = None
+    card_type: str | None = None
     items: list[SalesLineItem] = field(default_factory=list)

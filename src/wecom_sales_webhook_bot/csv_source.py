@@ -12,6 +12,15 @@ from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 LOGGER = logging.getLogger(__name__)
 
 
+def _parse_sold_at(value: str) -> datetime:
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %I:%M %p", "%Y/%m/%d %H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"unsupported sold_at format: {value}")
+
+
 class CsvSalesDataSource:
     def __init__(self, config: CsvConfig, base_dir: Path) -> None:
         self._config = config
@@ -51,9 +60,7 @@ class CsvSalesDataSource:
                 if order_no not in grouped:
                     grouped[order_no] = {
                         "order_no": order_no,
-                        "sold_at": datetime.strptime(
-                            required["sold_at"], "%Y-%m-%d %H:%M:%S"
-                        ),
+                        "sold_at": _parse_sold_at(required["sold_at"]),
                         "store_name": required["store_name"],
                         "total_amount": float(required["total_amount"]),
                         "items": [],

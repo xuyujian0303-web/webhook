@@ -1,1 +1,31 @@
-.worktrees/
+# local secrets and runtime data
+config*.yaml
+!config.example.yaml
+!datasource.example.yaml
+*.local.yaml
+var/
+tmp/
+logs/
+*.log
+*.out.txt
+*.err.txt
+
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest-temp/
+.pytest_tmp/
+pytest-cache-files-*/
+
+# local images and generated exports
+*.csv
+*.jpg
+*.jpeg
+*.png
+*.gif
+docs/exports/
+
+# local prototype scripts
+send_second_order_*.py
+serve_real_test_images.py

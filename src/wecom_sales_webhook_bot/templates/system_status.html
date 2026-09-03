@@ -1,6 +1,36 @@
 {% extends "base.html" %}
 {% block body %}
-<div>最近一次扫描：{{ last_run.created_at if last_run else "暂无" }}</div>
-<div>最近成功数量：{{ last_run.success_count if last_run else 0 }}</div>
-<div>最近失败数量：{{ last_run.failed_count if last_run else 0 }}</div>
+<section class="panel">
+  <div class="page-header">
+    <h1 class="page-title">系统状态</h1>
+    <p class="page-copy">查看最近一次扫描任务的执行结果和时间窗口。</p>
+  </div>
+  <div class="content">
+    {% if not last_run %}
+    <div class="empty-state">
+      <p>尚未执行扫描任务</p>
+      <p>后续完成手动测试与扫描联调后，这里会展示最新运行摘要。</p>
+    </div>
+    {% else %}
+    <article class="status-card">
+      <div class="action-row">
+        <h2>最近一次扫描</h2>
+        <span class="badge {% if last_run.status_label == '执行成功' %}ok{% else %}danger{% endif %}">
+          {{ last_run.status_label }}
+        </span>
+      </div>
+      <div class="status-meta">
+        <span>记录时间: {{ last_run.created_at }}</span>
+        <span>窗口开始: {{ last_run.window_start }}</span>
+        <span>窗口结束: {{ last_run.window_end }}</span>
+        <span>成功 {{ last_run.success_count }}</span>
+        <span>失败 {{ last_run.failed_count }}</span>
+      </div>
+      {% if last_run.error_summary %}
+      <div class="alert error" style="margin-top: 14px;">{{ last_run.error_summary }}</div>
+      {% endif %}
+    </article>
+    {% endif %}
+  </div>
+</section>
 {% endblock %}

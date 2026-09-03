@@ -17,6 +17,7 @@ def run_scan_cycle(
     start_at: datetime,
     end_at: datetime,
     max_images: int,
+    template_body: str | None = None,
 ) -> list[str]:
     session_factory = create_session_factory(database_url)
     initialize_database(session_factory)
@@ -44,6 +45,7 @@ def run_scan_cycle(
                 filter_result=FilterResult(matched=True, reason="rule_group"),
                 image_urls={},
                 max_images=max_images,
+                template_body=template_body,
             )
             webhook_client.send_markdown_v2(message)
             session.add(
