@@ -1,41 +1,25 @@
-csv:
-  path: ./data/sales.csv
-  encoding: utf-8-sig
-  field_mapping:
-    order_no: 销售单号
-    sold_at: 销售日期（时间）
-    store_name: 销售门店
-    total_amount: 销售单总额
-    barcode: 商品条码
-    style_no: 产品款号
-    unit_price: 产品单价
-image_service:
-  host: 127.0.0.1
-  port: 8123
-  image_dir: ./images
+﻿data_source:
+  kind: sqlserver
+  config_path: ./datasource.local.yaml
+
 wecom:
   webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-me
   timeout_seconds: 5
   retry_times: 2
-rules:
-  amount_threshold: 1000
-  style_whitelist: []
+
 runtime:
   scan_interval_seconds: 600
   max_images_per_message: 8
+  push_interval_seconds: 10
+  push_window_start: "10:00"
+  push_window_end: "22:00"
   state_file: ./var/push-state.json
   dry_run: true
 
 backend:
   database_url: sqlite:///./var/app.db
-  secret_key: replace-me
-  host: 0.0.0.0
+  secret_key: replace-me-with-a-long-random-value
+  host: 127.0.0.1
   port: 5000
   bootstrap_admin_username: admin
-  bootstrap_admin_password: change-me
-
-api:
-  sales_base_url: https://internal.example.com
-  sales_token: replace-me
-  sales_path: /sales/query
-  timeout_seconds: 10
+  bootstrap_admin_password: change-me-immediately
