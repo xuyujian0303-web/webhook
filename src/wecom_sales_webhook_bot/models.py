@@ -21,9 +21,15 @@ class SalesOrder:
     sold_at: datetime
     store_name: str
     total_amount: float
+    performance_org: str | None = None
+    store_name_display: str | None = None
+    performance_org_display: str | None = None
     salesperson: str | None = None
     total_quantity: int | float | str | None = None
     customer_source: str | None = None
     promotion_material: str | None = None
+    activity_type: str | None = None
     card_type: str | None = None
+    customer_type: str | None = None
+    document_type: str = "sale"
     items: list[SalesLineItem] = field(default_factory=list)

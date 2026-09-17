@@ -2,12 +2,15 @@
 
 import logging
 import time
+from dataclasses import replace
 from datetime import datetime
 
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
 from wecom_sales_webhook_bot.rule_service import evaluate_rule_group
 from wecom_sales_webhook_bot.runtime_settings import RuntimeControls, is_within_push_window, load_runtime_settings
+from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
+from wecom_sales_webhook_bot.rule_models import JobRun, PushRecord
 from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
@@ -31,6 +34,7 @@ def run_once(
     service_started_at: datetime | None = None,
     now_func=datetime.now,
     sleep_func=time.sleep,
+    store_name_mapping: dict[str, str] | None = None,
 ) -> list[str]:
     if database_url is not None:
         database_rule_groups, database_template_body = load_runtime_settings(database_url)
@@ -39,17 +43,60 @@ def run_once(
     state_store = PushStateStore(state_file)
     service_started_at = service_started_at or now_func()
     sent_orders: list[str] = []
+    failed_orders = 0
+    db_session = None
+    if database_url is not None:
+        session_factory = create_session_factory(database_url)
+        initialize_database(session_factory)
+        db_session = session_factory()
 
     try:
-        orders = data_source.load_orders()
+        # Use the previous scan timestamp as the lower bound so an EMS scan
+        # can recover records created since the last cycle.  The source keeps
+        # the exact wire-level query implementation; the orchestrator only
+        # supplies a date window.
+        last_scan = state_store.get_last_scan_at()
+        scan_start = last_scan or service_started_at
+        scan_end = now_func()
+        query_kwargs = {"start_at": scan_start, "end_at": scan_end}
+        # A single enabled ALL-rule can safely be pushed down to the EMS
+        # adapter. OR-rules must stay post-query or valid orders could be lost.
+        if database_rule_groups and len(database_rule_groups) == 1:
+            group = database_rule_groups[0]
+            if getattr(group, "match_mode", None) == "all":
+                conditions = getattr(group, "conditions", [])
+                amount = next((float(c.value) for c in conditions
+                               if c.field_name == "total_amount" and c.operator == "gte"), None)
+                stores = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                               if c.field_name == "store_name" and c.operator == "in"), None)
+                doc_types = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                                  if c.field_name == "document_type" and c.operator == "in"), None)
+                if amount is not None: query_kwargs["amount_threshold"] = amount
+                if stores: query_kwargs["store_names"] = {x.strip() for x in stores if x.strip()}
+                if doc_types: query_kwargs["document_types"] = {x.strip() for x in doc_types if x.strip()}
+        try:
+            orders = data_source.load_orders(**query_kwargs)
+        except TypeError:
+            # Backwards compatibility for legacy CSV/API data sources.
+            orders = data_source.load_orders()
     except Exception as exc:  # noqa: BLE001
-        LOGGER.error("failed to load csv orders: %s", exc)
+        LOGGER.error("failed to load sales orders: %s", exc)
+        if db_session is not None:
+            db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="failed", success_count=0, failed_count=1, error_summary=str(exc)))
+            db_session.commit()
+            db_session.close()
         return []
 
     pending_orders: list[tuple[object, FilterResult]] = []
+    seen_order_nos: set[str] = set()
     for order in orders:
-        if state_store.has_pushed(order.order_no):
+        if store_name_mapping:
+            order = replace(order,
+                            store_name_display=store_name_mapping.get(order.store_name, order.store_name),
+                            performance_org_display=store_name_mapping.get(order.performance_org or "", order.performance_org or ""))
+        if order.order_no in seen_order_nos or state_store.has_pushed(order.order_no):
             continue
+        seen_order_nos.add(order.order_no)
 
         if database_rule_groups is not None:
             matched_group = next(
@@ -67,6 +114,10 @@ def run_once(
         pending_orders.append((order, filter_result))
 
     if runtime_controls is not None and not is_within_push_window(now_func(), runtime_controls):
+        if db_session is not None:
+            db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="deferred", success_count=0, failed_count=0, error_summary="outside push window"))
+            db_session.commit()
+            db_session.close()
         return []
 
     for index, (order, filter_result) in enumerate(pending_orders):
@@ -86,9 +137,26 @@ def run_once(
             format_settings=format_settings,
             template_body=template_body,
         )
+        try:
+            if not dry_run:
+                webhook_client.send_markdown_v2(content)
+        except Exception as exc:  # noqa: BLE001
+            failed_orders += 1
+            LOGGER.error("failed to push order %s: %s", order.order_no, exc)
+            if db_session is not None:
+                db_session.add(PushRecord(order_no=order.order_no, store_name=order.store_name,
+                                          total_amount=order.total_amount,
+                                          rule_name=filter_result.reason or "matched",
+                                          status="failed", error_message=str(exc)))
+                db_session.commit()
+            continue
         if not dry_run:
-            webhook_client.send_markdown_v2(content)
-        state_store.mark_pushed(order.order_no, order.sold_at)
+            state_store.mark_pushed(order.order_no, order.sold_at)
+        if db_session is not None and not dry_run:
+            existing_record = db_session.query(PushRecord).filter_by(order_no=order.order_no).first()
+            if existing_record is None:
+                db_session.add(PushRecord(order_no=order.order_no, store_name=order.store_name, total_amount=order.total_amount, rule_name=filter_result.reason or "matched", status="success"))
+                db_session.commit()
         sent_orders.append(order.order_no)
 
         if (
@@ -99,6 +167,10 @@ def run_once(
             sleep_func(push_interval_seconds)
 
     state_store.set_last_scan_at(now_func())
+    if db_session is not None:
+        db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="failed" if failed_orders else "success", success_count=len(sent_orders), failed_count=failed_orders))
+        db_session.commit()
+        db_session.close()
     return sent_orders
 
 

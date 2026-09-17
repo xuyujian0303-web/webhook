@@ -28,7 +28,7 @@ image_service:
   port: 8123
   image_dir: ./images
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 rules:

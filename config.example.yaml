@@ -1,9 +1,9 @@
-﻿data_source:
-  kind: sqlserver
-  config_path: ./datasource.local.yaml
+data_source:
+  kind: ems
+  config_path: ./ems_config.json
 
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-me
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 
@@ -22,4 +22,4 @@ backend:
   host: 127.0.0.1
   port: 5000
   bootstrap_admin_username: admin
-  bootstrap_admin_password: change-me-immediately
+  bootstrap_admin_password: 8888

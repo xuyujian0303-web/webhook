@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import argparse
+import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,7 @@ from wecom_sales_webhook_bot.runtime_settings import (
     load_runtime_settings,
 )
 from wecom_sales_webhook_bot.sqlserver_source import SqlServerSalesDataSource
+from wecom_sales_webhook_bot.ems_source import EmsSalesDataSource
 from wecom_sales_webhook_bot.state_store import PushStateStore
 from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
 from wecom_sales_webhook_bot.web_app import create_app
@@ -54,7 +56,8 @@ def _uses_sqlserver_data_source(config: AppConfig) -> bool:
 def validate_prototype_config(command: str, config: AppConfig) -> None:
     missing: list[str] = []
     if command in ("run-once", "schedule"):
-        if not _uses_sqlserver_data_source(config):
+        uses_ems = config.data_source is not None and config.data_source.kind == "ems"
+        if not _uses_sqlserver_data_source(config) and not uses_ems:
             if config.csv is None:
                 missing.append("csv or data_source")
             else:
@@ -80,6 +83,9 @@ def validate_prototype_config(command: str, config: AppConfig) -> None:
 
 
 def _build_data_source(config: AppConfig, base_dir: Path):
+    if config.data_source is not None and config.data_source.kind == "ems":
+        ems_path = (base_dir / config.data_source.config_path).resolve()
+        return EmsSalesDataSource(json.loads(ems_path.read_text(encoding="utf-8")))
     if _uses_sqlserver_data_source(config):
         data_source_config_path = (base_dir / config.data_source.config_path).resolve()
         data_source_config = load_data_source_config(data_source_config_path)
@@ -114,7 +120,14 @@ def main() -> None:
                     scan_interval_seconds=config.runtime.scan_interval_seconds,
                     max_images_per_message=config.runtime.max_images_per_message,
                     push_interval_seconds=config.runtime.push_interval_seconds,
+                    show_chinese_org_names=False,
                 ),
+                "PROJECT_ROOT": Path.cwd(),
+                "CONFIG_PATH": Path(args.config).resolve(),
+                "STATE_FILE": (Path(args.config).resolve().parent / config.runtime.state_file).resolve(),
+                "EMS_CONFIG_PATH": ((Path(args.config).resolve().parent / config.data_source.config_path).resolve()
+                                    if config.data_source and config.data_source.kind == "ems" else None),
+                "STORE_MAPPING": config.store_mapping,
             }
         )
         serve_web_app(app, host=config.backend.host, port=config.backend.port)
@@ -152,6 +165,7 @@ def main() -> None:
             config.backend.database_url,
             runtime_controls,
         )
+    store_name_mapping = config.store_mapping if runtime_controls.show_chinese_org_names else None
     sales_filter = None
     database_rule_groups = None
     active_template_body = None
@@ -191,6 +205,8 @@ def main() -> None:
             push_interval_seconds=runtime_controls.push_interval_seconds,
             runtime_controls=runtime_controls,
             service_started_at=service_started_at,
+            database_url=config.backend.database_url if config.backend is not None else None,
+            store_name_mapping=store_name_mapping,
         )
         return
 
@@ -204,6 +220,7 @@ def main() -> None:
                     config.backend.database_url,
                     runtime_controls,
                 )
+                store_name_mapping = config.store_mapping if runtime_controls.show_chinese_org_names else None
             run_once(
                 data_source=data_source,
                 sales_filter=sales_filter,
@@ -217,6 +234,8 @@ def main() -> None:
                 push_interval_seconds=runtime_controls.push_interval_seconds,
                 runtime_controls=runtime_controls,
                 service_started_at=service_started_at,
+                database_url=config.backend.database_url if config.backend is not None else None,
+                store_name_mapping=store_name_mapping,
             )
             time.sleep(runtime_controls.scan_interval_seconds)
 

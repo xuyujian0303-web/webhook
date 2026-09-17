@@ -3,7 +3,12 @@
 from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
+import os
+import signal
+import subprocess
+import sys
 
 from flask import Flask, redirect, render_template, request, url_for
 from flask_login import LoginManager, UserMixin, login_required, login_user
@@ -45,6 +50,7 @@ from wecom_sales_webhook_bot.rule_models import (
     RuleGroup,
     UserAccount,
 )
+from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
 class LoginUser(UserMixin):
@@ -62,11 +68,10 @@ class _PreviewWebhookClient:
 
 def _page_context(*, active_nav: str, page_title: str, **extra: object) -> dict[str, object]:
     nav_items = [
-        {"endpoint": "rules_page", "label": "瑙勫垯绠＄悊", "key": "rules"},
-        {"endpoint": "rule_new_page", "label": "鏂板缓瑙勫垯", "key": "rule_new"},
-        {"endpoint": "format_settings_page", "label": "娑堟伅妯℃澘", "key": "format_settings"},
+        {"endpoint": "rules_page", "label": "规则管理", "key": "rules"},
+        {"endpoint": "rule_new_page", "label": "新建规则", "key": "rule_new"},
+        {"endpoint": "format_settings_page", "label": "消息模板", "key": "format_settings"},
         {"endpoint": "runtime_settings_page", "label": "\u8fd0\u884c\u914d\u7f6e", "key": "runtime_settings"},
-        {"endpoint": "manual_test_page", "label": "鎵嬪姩娴嬭瘯", "key": "manual_test"},
         {"endpoint": "records_page", "label": "推送记录", "key": "records"},
         {"endpoint": "status_page", "label": "系统状态", "key": "status"},
     ]
@@ -85,7 +90,7 @@ def _split_csv_text(raw: str) -> list[str]:
 
 
 def _match_mode_label(match_mode: str) -> str:
-    return {"all": "鍏ㄩ儴婊¤冻", "any": "浠讳竴婊¤冻"}.get(match_mode, match_mode)
+    return {"all": "全部满足", "any": "任一满足"}.get(match_mode, match_mode)
 
 
 def _rule_status_label(is_enabled: bool) -> str:
@@ -97,18 +102,20 @@ def _push_status_label(status: str) -> str:
 
 
 def _run_status_label(status: str) -> str:
-    return {"success": "鎵ц鎴愬姛", "failed": "鎵ц澶辫触"}.get(status, status)
+    return {"success": "执行成功", "failed": "执行失败"}.get(status, status)
 
 
 def _summarize_conditions(conditions: list[RuleCondition]) -> list[str]:
     summary: list[str] = []
     for condition in conditions:
         if condition.field_name == "total_amount" and condition.operator == "gte":
-            summary.append(f"金额不低于 {condition.value_json}")
+            summary.append(f"金额大于 {condition.value_json}")
         elif condition.field_name == "style_no" and condition.operator == "in":
             summary.append(f"\u6b3e\u53f7: {', '.join(_split_csv_text(condition.value_json))}")
         elif condition.field_name == "store_name" and condition.operator == "in":
             summary.append(f"\u95e8\u5e97: {', '.join(_split_csv_text(condition.value_json))}")
+        elif condition.field_name == "performance_org" and condition.operator == "in":
+            summary.append(f"业绩机构: {', '.join(_split_csv_text(condition.value_json))}")
         elif condition.field_name == "sold_at" and condition.operator == "between_time":
             start_time, end_time = condition.value_json.split(",", maxsplit=1)
             summary.append(f"时段: {start_time}-{end_time}")
@@ -144,10 +151,10 @@ def _manual_test_defaults() -> dict[str, str]:
         "field_order_no": "销售单号",
         "field_sold_at": "销售日期",
         "field_store_name": "销售门店",
-        "field_total_amount": "閿€鍞崟鎬婚",
-        "field_barcode": "鍟嗗搧鏉＄爜",
-        "field_style_no": "浜у搧娆惧彿",
-        "field_unit_price": "浜у搧鍗曚环",
+        "field_total_amount": "销售单总金额",
+        "field_barcode": "商品条码",
+        "field_style_no": "商品款号",
+        "field_unit_price": "商品单价",
         "image_dir": "",
         "image_base_url": "http://127.0.0.1:8123",
         "amount_threshold": "1000",
@@ -239,10 +246,10 @@ def _template_workspace_context(
         try:
             preview = _render_template_preview(payload["template_body"])
         except TemplateRenderError as exc:
-            display_errors.append(f"妯℃澘棰勮澶辫触: {exc}")
+            display_errors.append(f"模板预览失败: {exc}")
     return _page_context(
         active_nav="format_settings",
-        page_title="娑堟伅妯℃澘绠＄悊",
+        page_title="消息模板管理",
         template_form=payload,
         saved_templates=[],
         active_template_id=store.get("active_template_id", ""),
@@ -263,6 +270,7 @@ def _runtime_controls_defaults(app: Flask) -> RuntimeControls:
         push_interval_seconds=int(defaults.get("push_interval_seconds", DEFAULT_RUNTIME_CONTROLS.push_interval_seconds)),
         push_window_start=str(defaults.get("push_window_start", DEFAULT_RUNTIME_CONTROLS.push_window_start)),
         push_window_end=str(defaults.get("push_window_end", DEFAULT_RUNTIME_CONTROLS.push_window_end)),
+        show_chinese_org_names=bool(defaults.get("show_chinese_org_names", False)),
     )
 
 def _runtime_controls_form_data(controls: RuntimeControls) -> dict[str, str]:
@@ -272,6 +280,7 @@ def _runtime_controls_form_data(controls: RuntimeControls) -> dict[str, str]:
         "push_interval_seconds": str(controls.push_interval_seconds),
         "push_window_start": controls.push_window_start,
         "push_window_end": controls.push_window_end,
+        "show_chinese_org_names": "on" if controls.show_chinese_org_names else "",
     }
 
 
@@ -280,6 +289,7 @@ def _runtime_controls_page_context(
     controls: RuntimeControls,
     save_message: str | None,
     errors: list[str],
+    ems_config: dict | None = None,
 ) -> dict[str, object]:
     return _page_context(
         active_nav="runtime_settings",
@@ -287,6 +297,7 @@ def _runtime_controls_page_context(
         form_data=_runtime_controls_form_data(controls),
         save_message=save_message,
         errors=errors,
+        ems_config=ems_config or {},
     )
 
 def _validate_manual_test_form(form) -> list[str]:
@@ -294,40 +305,40 @@ def _validate_manual_test_form(form) -> list[str]:
     csv_path = form.get("csv_path", "").strip()
     image_dir = form.get("image_dir", "").strip()
     if not csv_path:
-        errors.append("璇峰～鍐?CSV 鏂囦欢璺緞")
+        errors.append("请填写 CSV 文件路径")
     elif not Path(csv_path).exists():
         errors.append("CSV 文件不存在")
     if not form.get("csv_encoding", "").strip():
-        errors.append("璇峰～鍐?CSV 缂栫爜")
+        errors.append("请填写 CSV 编码")
     if not form.get("field_order_no", "").strip():
-        errors.append("璇峰～鍐欓攢鍞崟鍙峰瓧娈靛悕")
+        errors.append("请填写销售单号字段名")
     if not form.get("field_sold_at", "").strip():
-        errors.append("璇峰～鍐欓攢鍞棩鏈熷瓧娈靛悕")
+        errors.append("请填写销售日期字段名")
     if not form.get("field_store_name", "").strip():
-        errors.append("璇峰～鍐欓攢鍞棬搴楀瓧娈靛悕")
+        errors.append("请填写销售门店字段名")
     if not form.get("field_total_amount", "").strip():
         errors.append("请填写销售单总额字段名")
     if not form.get("field_barcode", "").strip():
-        errors.append("璇峰～鍐欏晢鍝佹潯鐮佸瓧娈靛悕")
+        errors.append("请填写商品条码字段名")
     if not form.get("field_style_no", "").strip():
-        errors.append("璇峰～鍐欎骇鍝佹鍙峰瓧娈靛悕")
+        errors.append("请填写商品款号字段名")
     if not form.get("field_unit_price", "").strip():
-        errors.append("璇峰～鍐欎骇鍝佸崟浠峰瓧娈靛悕")
+        errors.append("请填写商品单价字段名")
     if not image_dir:
         errors.append("请填写图片目录")
     elif not Path(image_dir).exists():
         errors.append("图片目录不存在")
     if not form.get("image_base_url", "").strip():
-        errors.append("璇峰～鍐欏浘鐗囪闂墠缂€")
+        errors.append("请填写图片访问前缀")
     if not form.get("amount_threshold", "").strip():
         errors.append("请填写金额阈值")
     else:
         try:
             float(form["amount_threshold"])
         except ValueError:
-            errors.append("閲戦闃堝€煎繀椤绘槸鏁板瓧")
+            errors.append("金额阈值必须是数字")
     if not form.get("max_images", "").strip():
-        errors.append("璇峰～鍐欐渶澶у浘鐗囨暟")
+        errors.append("请填写最大图片数")
     else:
         try:
             max_images = int(form["max_images"])
@@ -434,7 +445,7 @@ def create_app(config: dict) -> Flask:
     def login_page():
         return render_template(
             "login.html",
-            **_page_context(active_nav="", page_title="鐧诲綍", error_message=None),
+            **_page_context(active_nav="", page_title="登录", error_message=None),
         )
 
     @app.post("/login")
@@ -454,8 +465,8 @@ def create_app(config: dict) -> Flask:
             "login.html",
             **_page_context(
                 active_nav="",
-                page_title="鐧诲綍",
-                error_message="鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒",
+                page_title="登录",
+                error_message="用户名或密码错误",
             ),
         )
 
@@ -485,7 +496,7 @@ def create_app(config: dict) -> Flask:
             "rules.html",
             **_page_context(
                 active_nav="rules",
-                page_title="瑙勫垯绠＄悊",
+                page_title="规则管理",
                 rules=rule_cards,
             ),
         )
@@ -497,7 +508,7 @@ def create_app(config: dict) -> Flask:
             "rule_edit.html",
             **_page_context(
                 active_nav="rule_new",
-                page_title="鏂板缓瑙勫垯",
+                page_title="新建规则",
                 errors=[],
                 form_data={},
             ),
@@ -512,7 +523,7 @@ def create_app(config: dict) -> Flask:
                 "rule_edit.html",
                 **_page_context(
                     active_nav="rule_new",
-                    page_title="鏂板缓瑙勫垯",
+                    page_title="新建规则",
                     errors=errors,
                     form_data=request.form,
                 ),
@@ -540,8 +551,12 @@ def create_app(config: dict) -> Flask:
                     )
 
             add_condition("total_amount", "gte", request.form["amount_threshold"])
+            selected_types = request.form.getlist("document_types")
+            if selected_types:
+                add_condition("document_type", "in", ",".join(selected_types))
             add_condition("style_no", "in", request.form["style_list"])
             add_condition("store_name", "in", request.form["store_list"])
+            add_condition("performance_org", "in", request.form.get("performance_org_list", ""))
             add_condition(
                 "sold_at",
                 "date_range",
@@ -603,7 +618,7 @@ def create_app(config: dict) -> Flask:
     @login_required
     def format_settings_submit():
         template_body = str(request.form.get("template_body", ""))
-        errors = [f"妯℃澘鏍￠獙澶辫触: {item}" for item in validate_message_template(template_body)]
+        errors = [f"模板校验失败: {item}" for item in validate_message_template(template_body)]
         save_message = None
         with session_factory() as session:
             store = load_or_initialize_message_template_store(session)
@@ -634,12 +649,18 @@ def create_app(config: dict) -> Flask:
         defaults = _runtime_controls_defaults(app)
         with session_factory() as session:
             controls = load_or_initialize_runtime_controls(session, defaults)
+        ems = {}
+        ems_path = app.config.get("EMS_CONFIG_PATH")
+        if ems_path and Path(ems_path).exists():
+            try: ems = json.loads(Path(ems_path).read_text(encoding="utf-8"))
+            except Exception: ems = {}
         return render_template(
             "runtime_settings.html",
             **_runtime_controls_page_context(
                 controls=controls,
                 save_message=None,
                 errors=[],
+                ems_config=ems,
             ),
         )
 
@@ -655,6 +676,15 @@ def create_app(config: dict) -> Flask:
             push_interval_seconds = int(request.form.get("push_interval_seconds", "").strip())
             push_window_start = request.form.get("push_window_start", defaults.push_window_start).strip()
             push_window_end = request.form.get("push_window_end", defaults.push_window_end).strip()
+            show_chinese_org_names = request.form.get("show_chinese_org_names") == "on"
+            ems_path = app.config.get("EMS_CONFIG_PATH")
+            if ems_path:
+                payload = {}
+                if Path(ems_path).exists(): payload = json.loads(Path(ems_path).read_text(encoding="utf-8"))
+                payload["username"] = request.form.get("ems_username", "").strip()
+                new_password = request.form.get("ems_password", "")
+                if new_password: payload["password"] = new_password
+                Path(ems_path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             with session_factory() as session:
                 controls = save_runtime_controls(
                     session,
@@ -663,6 +693,7 @@ def create_app(config: dict) -> Flask:
                     push_interval_seconds=push_interval_seconds,
                     push_window_start=push_window_start,
                     push_window_end=push_window_end,
+                    show_chinese_org_names=show_chinese_org_names,
                     defaults=defaults,
                 )
             save_message = "\u8fd0\u884c\u914d\u7f6e\u5df2\u4fdd\u5b58"
@@ -675,6 +706,7 @@ def create_app(config: dict) -> Flask:
                 controls=controls,
                 save_message=save_message,
                 errors=errors,
+                ems_config={},
             ),
         )
 
@@ -685,7 +717,7 @@ def create_app(config: dict) -> Flask:
             "manual_test.html",
             **_page_context(
                 active_nav="manual_test",
-                page_title="鎵嬪姩娴嬭瘯",
+                page_title="手动测试",
                 errors=[],
                 form_data=_manual_test_defaults(),
                 manual_result=None,
@@ -709,12 +741,12 @@ def create_app(config: dict) -> Flask:
                     template_body=message_template["template_body"],
                 )
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"鎵嬪姩娴嬭瘯鎵ц澶辫触: {exc}")
+                errors.append(f"手动测试执行失败: {exc}")
         return render_template(
             "manual_test.html",
             **_page_context(
                 active_nav="manual_test",
-                page_title="鎵嬪姩娴嬭瘯",
+                page_title="手动测试",
                 errors=errors,
                 form_data=form_data,
                 manual_result=result,
@@ -724,15 +756,22 @@ def create_app(config: dict) -> Flask:
     @app.get("/records")
     @login_required
     def records_page():
+        from datetime import date, time
+        today_start = datetime.combine(date.today(), time.min)
+        tomorrow_start = today_start + timedelta(days=1)
         with session_factory() as session:
             records = (
-                session.query(PushRecord)
+                session.query(PushRecord).filter(
+                    PushRecord.created_at >= today_start,
+                    PushRecord.created_at < tomorrow_start,
+                )
                 .order_by(PushRecord.created_at.desc())
                 .limit(50)
                 .all()
             )
         record_rows = [
             {
+                "id": record.id,
                 "order_no": record.order_no,
                 "store_name": record.store_name,
                 "total_amount": f"{record.total_amount:.2f}",
@@ -760,7 +799,7 @@ def create_app(config: dict) -> Flask:
         run_view = None
         if last_run is not None:
             run_view = {
-                "created_at": last_run.created_at.strftime("%Y-%m-%d %H:%M"),
+                "created_at": (last_run.created_at + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M"),
                 "window_start": last_run.window_start,
                 "window_end": last_run.window_end,
                 "status_label": _run_status_label(last_run.status),
@@ -768,14 +807,59 @@ def create_app(config: dict) -> Flask:
                 "failed_count": last_run.failed_count,
                 "error_summary": last_run.error_summary,
             }
+        pid_file = Path(app.config.get("PROJECT_ROOT", Path.cwd())) / "var" / "schedule.pid"
+        running = False
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text()); os.kill(pid, 0); running = True
+            except Exception: running = False
+        if not running and pid_file.exists():
+            pid_file.unlink(missing_ok=True)
         return render_template(
             "system_status.html",
             **_page_context(
                 active_nav="status",
                 page_title="系统状态",
                 last_run=run_view,
+                service_running=running,
             ),
         )
+
+    @app.post("/records/delete")
+    @login_required
+    def records_delete():
+        ids = []
+        for raw in request.form.getlist("record_ids"):
+            try: ids.append(int(raw))
+            except ValueError: continue
+        if ids:
+            with session_factory() as session:
+                selected = session.query(PushRecord).filter(PushRecord.id.in_(ids)).all()
+                order_nos = [item.order_no for item in selected]
+                session.query(PushRecord).filter(PushRecord.id.in_(ids)).delete(synchronize_session=False)
+                session.commit()
+            state_path = Path(app.config.get("STATE_FILE", Path(app.config.get("PROJECT_ROOT", Path.cwd())) / "var" / "push-state.json"))
+            PushStateStore(state_path).remove_orders(order_nos)
+        return redirect(url_for("records_page"))
+
+    @app.post("/service/<action>")
+    @login_required
+    def service_control(action: str):
+        root = Path(app.config.get("PROJECT_ROOT", Path.cwd())); pid_file = root / "var" / "schedule.pid"
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        if action == "start":
+            if not pid_file.exists():
+                log_path = root / "var" / "schedule.log"
+                log_handle = log_path.open("a", encoding="utf-8")
+                creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                proc = subprocess.Popen([sys.executable, "-u", "-m", "wecom_sales_webhook_bot.cli", "schedule", "--config", str(app.config["CONFIG_PATH"])], cwd=root, env={**os.environ, "PYTHONPATH": str(root / "src")}, stdout=log_handle, stderr=subprocess.STDOUT, creationflags=creationflags)
+                log_handle.close()
+                pid_file.write_text(str(proc.pid))
+        elif action == "stop" and pid_file.exists():
+            try: os.kill(int(pid_file.read_text()), signal.SIGTERM)
+            except Exception: pass
+            pid_file.unlink(missing_ok=True)
+        return redirect(url_for("status_page"))
 
     return app
 

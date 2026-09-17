@@ -1,0 +1,84 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 238, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 219, in main
+    run_once(
+    ~~~~~~~~^
+        data_source=data_source,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+        database_url=config.backend.database_url if config.backend is not None else None,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\orchestrator.py", line 134, in run_once
+    webhook_client.send_markdown_v2(content)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 50, in send_markdown_v2
+    raise last_error
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 41, in send_markdown_v2
+    raise RuntimeError(
+        f"WeCom webhook rejected message: errcode={errcode} errmsg={errmsg}"
+    )
+RuntimeError: WeCom webhook rejected message: errcode=93000 errmsg=invalid webhook url, hint: [1788603116358772040183149], from ip: 113.106.164.106, more info at https://open.work.weixin.qq.com/devtool/query?e=93000
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 238, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 219, in main
+    run_once(
+    ~~~~~~~~^
+        data_source=data_source,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+        database_url=config.backend.database_url if config.backend is not None else None,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\orchestrator.py", line 134, in run_once
+    webhook_client.send_markdown_v2(content)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 50, in send_markdown_v2
+    raise last_error
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 41, in send_markdown_v2
+    raise RuntimeError(
+        f"WeCom webhook rejected message: errcode={errcode} errmsg={errmsg}"
+    )
+RuntimeError: WeCom webhook rejected message: errcode=93000 errmsg=invalid webhook url, hint: [1788603171445594084776632], from ip: 113.106.164.106, more info at https://open.work.weixin.qq.com/devtool/query?e=93000
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 238, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\cli.py", line 219, in main
+    run_once(
+    ~~~~~~~~^
+        data_source=data_source,
+        ^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<11 lines>...
+        database_url=config.backend.database_url if config.backend is not None else None,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\orchestrator.py", line 134, in run_once
+    webhook_client.send_markdown_v2(content)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 50, in send_markdown_v2
+    raise last_error
+  File "C:\Users\redstone\webhook\src\wecom_sales_webhook_bot\wecom_client.py", line 41, in send_markdown_v2
+    raise RuntimeError(
+        f"WeCom webhook rejected message: errcode={errcode} errmsg={errmsg}"
+    )
+RuntimeError: WeCom webhook rejected message: errcode=93000 errmsg=invalid webhook url, hint: [1788603180035892474285866], from ip: 113.106.164.106, more info at https://open.work.weixin.qq.com/devtool/query?e=93000
+failed to load sales orders: EMS connection closed before full frame arrived
+failed to load sales orders: EMS connection closed before full frame arrived
+failed to load sales orders: [WinError 10013] 以一种访问权限不允许的方式做了一个访问套接字的尝试。
+failed to load sales orders: [WinError 10013] 以一种访问权限不允许的方式做了一个访问套接字的尝试。
+failed to load sales orders: EMS connection closed before full frame arrived
+failed to load sales orders: EMS connection closed before full frame arrived

@@ -78,6 +78,7 @@ class AppConfig:
     backend: Optional[BackendConfig]
     api: Optional[ApiConfig]
     data_source: Optional[DataSourceRefConfig]
+    store_mapping: dict[str, str]
 
 
 def load_config(path: Path) -> AppConfig:
@@ -195,6 +196,8 @@ def load_config(path: Path) -> AppConfig:
     else:
         data_source_cfg = None
 
+    store_mapping = {str(key).strip(): str(value).strip() for key, value in (raw.get("store_mapping") or {}).items() if str(key).strip() and str(value).strip()}
+
     return AppConfig(
         csv=csv_cfg,
         image_service=img_cfg,
@@ -208,4 +211,5 @@ def load_config(path: Path) -> AppConfig:
         backend=backend_cfg,
         api=api_cfg,
         data_source=data_source_cfg,
+        store_mapping=store_mapping,
     )

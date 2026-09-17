@@ -1,0 +1,29 @@
+# 企业微信销售单推送机器人：服务器配置模板
+# IT 只需修改本文件中的连接信息、真实表名和真实字段名。
+# 不要把填写后的真实配置提交到 Git。
+
+data_source:
+  kind: sqlserver
+  config_path: ./datasource.server.yaml
+
+wecom:
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
+  timeout_seconds: 5
+  retry_times: 2
+
+runtime:
+  scan_interval_seconds: 600
+  max_images_per_message: 8
+  push_interval_seconds: 10
+  push_window_start: "10:00"
+  push_window_end: "22:00"
+  state_file: ./data/push-state.json
+  dry_run: true # 验收完成后再改为 false
+
+backend:
+  database_url: sqlite:///./data/app.db
+  secret_key: 请生成随机长字符串
+  host: 127.0.0.1
+  port: 5000
+  bootstrap_admin_username: admin
+  bootstrap_admin_password: 8888

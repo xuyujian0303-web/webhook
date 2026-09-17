@@ -87,7 +87,7 @@ image_service:
   port: 8123
   image_dir: ./images
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 rules:
@@ -302,7 +302,7 @@ image_service:
   port: 8123
   image_dir: ./images
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 rules:
@@ -777,7 +777,7 @@ class FakeSession:
 def test_wecom_client_posts_markdown_message() -> None:
     session = FakeSession()
     client = WeComWebhookClient(
-        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
         timeout_seconds=5,
         retry_times=2,
         session=session,
@@ -787,7 +787,7 @@ def test_wecom_client_posts_markdown_message() -> None:
 
     assert session.calls == [
         {
-            "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+            "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
             "json": {"msgtype": "markdown_v2", "markdown_v2": {"content": "hello"}},
             "timeout": 5,
         }
@@ -1198,7 +1198,7 @@ image_service:
   port: 8123
   image_dir: ./images
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-me
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 rules:
@@ -1289,7 +1289,7 @@ image_service:
   port: 8123
   image_dir: ./images
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 rules:

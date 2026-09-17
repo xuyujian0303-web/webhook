@@ -9,6 +9,12 @@
     {% if save_message %}<div class="badge ok" style="margin-bottom: 16px;">{{ save_message }}</div>{% endif %}
     {% if errors %}<div class="alert error">{% for item in errors %}<div>{{ item }}</div>{% endfor %}</div>{% endif %}
     <form method="post" action="/runtime-settings">
+      <section class="test-card" style="margin-bottom:16px"><h2>EMS 账户</h2>
+        <div class="form-grid"><div class="field"><label>账号</label><input name="ems_username" value="{{ ems_config.username|default('') }}" autocomplete="off" /></div>
+        <div class="field"><label>密码</label><input name="ems_password" type="password" placeholder="留空表示不修改" autocomplete="new-password" /></div></div>
+        <div class="hint">密码仅保存到本机 EMS 配置文件，不会在页面回显。</div>
+        <label><input type="checkbox" name="show_chinese_org_names" {% if form_data.show_chinese_org_names == 'on' %}checked{% endif %} /> 以中文店铺名显示销售机构和业绩机构（无匹配时显示编号）</label>
+      </section>
       <div class="grid"><section class="test-card">
         <div class="field"><label for="scan_interval_seconds">扫描周期（秒）</label><input id="scan_interval_seconds" name="scan_interval_seconds" type="number" min="1" value="{{ form_data.scan_interval_seconds }}" /><div class="hint">正整数，例如 1200 表示每 20 分钟扫描一次。</div></div>
         <div class="field"><label for="max_images_per_message">单条消息最大图片数</label><input id="max_images_per_message" name="max_images_per_message" type="number" min="1" value="{{ form_data.max_images_per_message }}" /><div class="hint">正整数，例如 8。</div></div>

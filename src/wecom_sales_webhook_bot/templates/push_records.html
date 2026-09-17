@@ -1,39 +1,6 @@
 {% extends "base.html" %}
 {% block body %}
-<section class="panel">
-  <div class="page-header">
-    <h1 class="page-title">推送记录</h1>
-    <p class="page-copy">按时间倒序展示最近 50 条推送结果。</p>
-  </div>
-  <div class="content">
-    {% if not records %}
-    <div class="empty-state">
-      <p>暂无推送记录</p>
-      <p>后续在手动测试或定时扫描跑通后，这里会出现历史结果。</p>
-    </div>
-    {% else %}
-    <div class="grid">
-      {% for record in records %}
-      <article class="record-card">
-        <div class="action-row">
-          <h2>{{ record.order_no }}</h2>
-          <span class="badge {% if record.status_label == '推送成功' %}ok{% else %}danger{% endif %}">
-            {{ record.status_label }}
-          </span>
-        </div>
-        <div class="record-meta">
-          <span>门店: {{ record.store_name }}</span>
-          <span>金额: {{ record.total_amount }}</span>
-          <span>命中规则: {{ record.rule_name }}</span>
-          <span>时间: {{ record.created_at }}</span>
-        </div>
-        {% if record.error_message %}
-        <div class="alert error" style="margin-top: 14px;">{{ record.error_message }}</div>
-        {% endif %}
-      </article>
-      {% endfor %}
-    </div>
-    {% endif %}
-  </div>
-</section>
+<section class="panel"><div class="page-header"><h1 class="page-title">推送记录</h1><p class="page-copy">仅显示当天记录。删除记录后，该销售单可再次参与推送。</p></div><div class="content">
+{% if not records %}<div class="empty-state"><p>今天暂无推送记录</p></div>{% else %}<form method="post" action="/records/delete" onsubmit="return confirm('确定删除选中的记录吗？删除后可再次推送。');"><div class="action-row" style="margin-bottom:12px"><label><input type="checkbox" id="select-all" /> 全选</label><button class="button secondary" type="submit">删除选中</button></div><div style="overflow-x:auto"><table class="data-table"><thead><tr><th></th><th>销售单号</th><th>门店</th><th>整单金额</th><th>规则</th><th>推送状态</th><th>错误信息</th><th>推送时间</th></tr></thead><tbody>{% for record in records %}<tr><td><input type="checkbox" name="record_ids" value="{{ record.id }}" class="record-check" /></td><td>{{ record.order_no }}</td><td>{{ record.store_name }}</td><td>{{ record.total_amount }}</td><td>{{ record.rule_name }}</td><td>{{ record.status_label }}</td><td>{{ record.error_message or '' }}</td><td>{% if record.status_label == '推送成功' %}{{ record.created_at }}{% else %}未推送{% endif %}</td></tr>{% endfor %}</tbody></table></div></form><script>document.getElementById('select-all').addEventListener('change',function(){document.querySelectorAll('.record-check').forEach(function(x){x.checked=this.checked},this)});</script>{% endif %}
+</div></section>
 {% endblock %}

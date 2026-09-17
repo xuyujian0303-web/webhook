@@ -19,12 +19,14 @@ class RuntimeControls:
     push_interval_seconds: int
     push_window_start: str = "10:00"
     push_window_end: str = "22:00"
+    show_chinese_org_names: bool = False
 
 
 DEFAULT_RUNTIME_CONTROLS = RuntimeControls(
     scan_interval_seconds=1200,
     max_images_per_message=8,
     push_interval_seconds=10,
+    show_chinese_org_names=False,
 )
 
 
@@ -59,6 +61,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
     push_interval_seconds = int(payload.get("push_interval_seconds", defaults.push_interval_seconds))
     push_window_start = str(payload.get("push_window_start", defaults.push_window_start))
     push_window_end = str(payload.get("push_window_end", defaults.push_window_end))
+    show_chinese_org_names = bool(payload.get("show_chinese_org_names", defaults.show_chinese_org_names))
     if scan_interval_seconds <= 0:
         raise ValueError("scan_interval_seconds must be > 0")
     if max_images_per_message <= 0:
@@ -73,6 +76,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
         push_interval_seconds=push_interval_seconds,
         push_window_start=push_window_start,
         push_window_end=push_window_end,
+        show_chinese_org_names=show_chinese_org_names,
     )
 
 
@@ -95,9 +99,9 @@ def load_or_initialize_runtime_controls(session, defaults: RuntimeControls = DEF
     return controls
 
 
-def save_runtime_controls(session, *, scan_interval_seconds: int, max_images_per_message: int, push_interval_seconds: int, push_window_start: str = "10:00", push_window_end: str = "22:00", defaults: RuntimeControls = DEFAULT_RUNTIME_CONTROLS) -> RuntimeControls:
+def save_runtime_controls(session, *, scan_interval_seconds: int, max_images_per_message: int, push_interval_seconds: int, push_window_start: str = "10:00", push_window_end: str = "22:00", show_chinese_org_names: bool = False, defaults: RuntimeControls = DEFAULT_RUNTIME_CONTROLS) -> RuntimeControls:
     controls = _normalize_runtime_controls(
-        {"scan_interval_seconds": scan_interval_seconds, "max_images_per_message": max_images_per_message, "push_interval_seconds": push_interval_seconds, "push_window_start": push_window_start, "push_window_end": push_window_end},
+        {"scan_interval_seconds": scan_interval_seconds, "max_images_per_message": max_images_per_message, "push_interval_seconds": push_interval_seconds, "push_window_start": push_window_start, "push_window_end": push_window_end, "show_chinese_org_names": show_chinese_org_names},
         defaults,
     )
     row = session.query(GlobalSetting).filter_by(setting_key=RUNTIME_SETTINGS_KEY).one_or_none()

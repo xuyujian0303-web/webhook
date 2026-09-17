@@ -226,7 +226,10 @@ def build_markdown_v2_message(
             {
                 "order": {
                     "order_no": order.order_no,
-                    "store_name": order.store_name,
+                    "store_name": order.store_name_display or order.store_name,
+                    "performance_org": order.performance_org_display or order.performance_org or "",
+                    "store_name_display": order.store_name_display or order.store_name,
+                    "performance_org_display": order.performance_org_display or order.performance_org or "",
                     "sold_at": order.sold_at,
                     "total_amount": order.total_amount,
                     "salesperson": order.salesperson or "",
@@ -234,6 +237,7 @@ def build_markdown_v2_message(
                     "customer_source": order.customer_source or "",
                     "promotion_material": order.promotion_material or "",
                     "card_type": order.card_type or "",
+                    "activity_type": order.activity_type or "",
                     "match_reason": _format_reason(filter_result.reason),
                     "items": [
                         {
@@ -243,6 +247,7 @@ def build_markdown_v2_message(
                             "brand": item.brand or "",
                             "category": item.category or "",
                             "image_url": _resolve_image_url(item, image_urls) or "",
+                            "image_markdown": _image_markdown(item.style_no, _resolve_image_url(item, image_urls)) if _resolve_image_url(item, image_urls) else "",
                         }
                         for item in order.items
                     ],

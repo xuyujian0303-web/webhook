@@ -1,9 +1,10 @@
 ﻿# 企业微信销售单 Webhook 推送机器人
 
-这是一个 Python 项目：从 SQL Server（也支持 CSV）读取销售订单，按后台规则筛选，使用可编辑的 Jinja 模板生成企业微信 `markdown_v2` 消息，并通过 Webhook 推送。
+这是一个 Python 项目：从 EMS 只读 TCP 服务（也兼容 SQL Server 和 CSV）读取销售订单，按后台规则筛选，使用可编辑的 Jinja 模板生成企业微信 `markdown_v2` 消息，并通过 Webhook 推送。
 
 ## 功能
 
+- EMS 只读 TCP 销售数据源，支持定时扫描、订单去重和企业微信推送
 - SQL Server 销售数据源，IT 可配置中文业务名到真实列名的映射
 - CSV 数据源，便于本地开发和回归测试
 - 订单金额、门店、款号、品牌、品类、订单日期范围规则
@@ -23,6 +24,9 @@
 ```text
 src/wecom_sales_webhook_bot/       程序源码
   cli.py                            run-server / schedule / run-once 等入口
+  ems_client.py                     EMS 认证、初始化及只读销售查询
+  ems_decoder.py                    EMS TLV/RDS 销售明细解码
+  ems_source.py                     EMS 数据源适配器
   sqlserver_source.py               SQL Server 只读数据源
   datasource_config.py              IT 字段映射配置
   orchestrator.py                   扫描、规则、推送、去重
@@ -56,6 +60,7 @@ cp config.example.yaml config.local.yaml
 - `wecom.webhook_url` 填企业微信机器人地址
 - `runtime.dry_run` 测试时保持 `true`，确认后才改为 `false`
 - `backend.database_url` 填机器人后台业务库
+- 使用 EMS 时，将 `data_source.kind` 设为 `ems`，并将 `data_source.config_path` 指向本地 `ems_config.json`；该文件含账号密码，不能提交 Git
 - 若使用 SQL Server，将 `data_source.kind` 设为 `sqlserver`，并把 `data_source.config_path` 指向复制后的数据源配置
 - 商品图片是内网 URL 时，不需要启动 `serve-images`
 
@@ -84,6 +89,10 @@ python -u -m wecom_sales_webhook_bot.cli run-once --config config.local.yaml
 ```
 
 生产真实推送前必须确认规则、日期范围、每日推送时段、Webhook 返回 `errcode=0`，并检查去重状态目录。
+
+`schedule` 每个扫描周期都会向 EMS 查询“上次扫描时间至当前时间”的订单；同一批订单与已成功推送的订单都会按销售单号去重，随后才使用网页后台保存的规则、模板和运行配置进行推送。
+
+当后台只有一条“全部满足”规则时，金额阈值和门店列表会在 EMS 响应解码后立即过滤；日期范围会直接作为 EMS 查询日期参数。EMS 当前已验证的查询协议只公开日期参数，金额和门店暂不拼入未经确认的二进制请求字段，避免查询结果被错误截断。多条规则或“任一满足”规则仍由后台统一判断。
 
 ## SQL Server 配置
 

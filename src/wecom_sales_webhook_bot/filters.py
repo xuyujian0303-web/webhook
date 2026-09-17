@@ -17,7 +17,7 @@ class SalesFilter:
         self._style_whitelist = style_whitelist
 
     def evaluate(self, order: SalesOrder) -> FilterResult:
-        if order.total_amount >= self._amount_threshold:
+        if order.total_amount > self._amount_threshold:
             return FilterResult(matched=True, reason="amount_threshold")
         if any(item.style_no in self._style_whitelist for item in order.items):
             return FilterResult(matched=True, reason="style_whitelist")

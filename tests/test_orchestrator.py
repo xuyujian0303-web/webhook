@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -136,7 +136,7 @@ class DummyClient:
 def test_wecom_client_posts_markdown_message() -> None:
     session = FakeSession()
     client = WeComWebhookClient(
-        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
         timeout_seconds=5,
         retry_times=2,
         session=session,
@@ -146,7 +146,7 @@ def test_wecom_client_posts_markdown_message() -> None:
 
     assert session.calls == [
         {
-            "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+            "url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
             "json": {"msgtype": "markdown_v2", "markdown_v2": {"content": "hello"}},
             "timeout": 5,
         }
@@ -156,7 +156,7 @@ def test_wecom_client_posts_markdown_message() -> None:
 def test_wecom_client_raises_when_errcode_is_non_zero() -> None:
     session = FakeSession(payload={"errcode": 93000, "errmsg": "rate limited"})
     client = WeComWebhookClient(
-        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
         timeout_seconds=5,
         retry_times=0,
         session=session,

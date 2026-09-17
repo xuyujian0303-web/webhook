@@ -1,0 +1,13 @@
+{
+  "username": "",
+  "password": "",
+  "auth_host": "giada-erp.redstone.com.cn",
+  "auth_port": 9999,
+  "data_host": "giada-erp.redstone.com.cn",
+  "data_port": 9100,
+  "timeout_seconds": 15,
+  "verification_samples": {
+    "sale_detail_json": "D:/文档/桌面/sales-0904.json",
+    "sale_detail_response_bin": "D:/文档/桌面/ems_sale_detail_response.bin"
+  }
+}

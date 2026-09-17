@@ -30,6 +30,16 @@ class PushStateStore:
         payload["pushed_orders"][order_no] = sold_at.isoformat()
         self._write(payload)
 
+    def remove_orders(self, order_nos: list[str]) -> None:
+        payload = self._read()
+        for order_no in order_nos:
+            payload["pushed_orders"].pop(order_no, None)
+        # Re-scan the current day after a manual deletion so the order can be
+        # intentionally selected for another push.
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        payload["last_scan_at"] = today.isoformat()
+        self._write(payload)
+
     def get_last_scan_at(self) -> datetime | None:
         raw = self._read()["last_scan_at"]
         return datetime.fromisoformat(raw) if raw else None

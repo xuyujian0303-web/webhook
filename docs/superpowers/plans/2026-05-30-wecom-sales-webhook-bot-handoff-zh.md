@@ -188,7 +188,7 @@ $env:PYTHONPATH="src"
 
 ```yaml
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=replace-me
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 

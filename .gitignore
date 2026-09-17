@@ -29,3 +29,7 @@ docs/exports/
 # local prototype scripts
 send_second_order_*.py
 serve_real_test_images.py
+ems_config.json
+*.pcapng
+ems_sale_detail_response.bin
+datasource.server.yaml

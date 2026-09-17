@@ -35,7 +35,7 @@ def test_evaluate_rule_group_supports_amount_style_store_time_brand_category() -
         ],
     )
     all_group = RuleGroupDTO(
-        name="鍏ㄩ儴鍛戒腑",
+        name="全部命中",
         match_mode="all",
         conditions=[
             RuleConditionDTO(field_name="total_amount", operator="gte", value=10000),

@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +10,7 @@ def test_load_config_reads_backend_database_auth_and_api_settings(tmp_path: Path
     config_file.write_text(
         """
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test
+  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 runtime:

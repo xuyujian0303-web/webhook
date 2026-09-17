@@ -40,9 +40,13 @@ def _parse_date_range(condition: RuleConditionDTO) -> tuple[date | None, date | 
 
 def _match_condition(order: SalesOrder, condition: RuleConditionDTO) -> bool:
     if condition.field_name == "total_amount" and condition.operator == "gte":
-        return order.total_amount >= float(condition.value)
+        return order.total_amount > float(condition.value)
     if condition.field_name == "store_name" and condition.operator == "in":
         return order.store_name in condition.value
+    if condition.field_name == "performance_org" and condition.operator == "in":
+        return (order.performance_org or "") in condition.value
+    if condition.field_name == "document_type" and condition.operator == "in":
+        return order.document_type in condition.value
     if condition.field_name == "style_no" and condition.operator == "in":
         return any(item.style_no in condition.value for item in order.items)
     if condition.field_name == "brand" and condition.operator == "in":

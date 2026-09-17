@@ -1,0 +1,80 @@
+data_source:
+  kind: ems
+  config_path: ./ems_config.json
+
+wecom:
+  webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY"
+  timeout_seconds: 10
+  retry_times: 2
+
+image_service:
+  host: 127.0.0.1
+  port: 8765
+  image_dir: ./data/images
+
+runtime:
+  scan_interval_seconds: 600
+  max_images_per_message: 8
+  push_interval_seconds: 10
+  push_window_start: "10:00"
+  push_window_end: "22:00"
+  state_file: ./var/push-state.json
+  dry_run: true
+
+backend:
+  database_url: sqlite:///./var/app.db
+  secret_key: "请替换为随机长字符串"
+  host: 127.0.0.1
+  port: 5000
+  bootstrap_admin_username: admin
+  bootstrap_admin_password: "请修改后台初始密码"
+
+# 机构编号到中文店铺名。没有对应关系时自动显示机构编号。
+store_mapping:
+  G609: "长春卓展"
+  G621: "郑州丹尼斯"
+  G636: "成都IFS"
+  G637: "昆明恒隆"
+  G662: "长沙IFS"
+  G673: "常州购物中心"
+  G800: "哈尔滨卓展"
+  G803: "大连香格里拉酒店"
+  G805: "大连恒隆"
+  G808: "沈阳万象城"
+  G812: "兰州国芳"
+  G817: "太原万象城"
+  G819: "天津万象城"
+  G820: "西安SKP"
+  G822: "石家庄先天下"
+  G825: "济南贵和"
+  G827: "烟台振华"
+  G828: "青岛海信"
+  G832: "贵阳荔星名品"
+  G838: "重庆WFC"
+  G839: "成都SKP"
+  G848: "重庆星光68"
+  G859: "厦门万象城"
+  G860: "南宁万象城"
+  G862: "长沙友谊"
+  G865: "广州友谊"
+  G866: "广州花园酒店"
+  G868: "深圳万象城"
+  G869: "深圳益田假日"
+  G871: "苏州久光"
+  G873: "常州泰富"
+  G875: "南京金陵饭店"
+  G876: "杭州大厦"
+  G878: "南京德基"
+  G879: "合肥银泰"
+  G87B: "苏州比斯特"
+  G887: "上海港汇恒隆"
+  G889: "上海久光"
+  G88D: "上海青浦"
+  G88T: "上海比斯特"
+  G896: "北京金融街"
+  G897: "北京中国大饭店"
+  G898: "北京王府中环"
+  G899: "北京SKP"
+  G89B: "北京双安"
+  G89D: "北京八达岭"
+  G89P: "北京斯普瑞斯"

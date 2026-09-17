@@ -226,7 +226,7 @@ Expected: PASS
 def test_wecom_client_raises_when_errcode_is_non_zero() -> None:
     session = FakeSession(payload={"errcode": 93000, "errmsg": "rate limited"})
     client = WeComWebhookClient(
-        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test",
+        webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY",
         timeout_seconds=5,
         retry_times=0,
         session=session,

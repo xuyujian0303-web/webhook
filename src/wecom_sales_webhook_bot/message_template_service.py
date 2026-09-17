@@ -186,6 +186,9 @@ def build_preview_template_context() -> dict:
         "order": {
             "order_no": "SOG609260605001",
             "store_name": "G609",
+            "store_name_display": "上海恒隆",
+            "performance_org": "G609",
+            "performance_org_display": "上海恒隆",
             "sold_at": datetime(2026, 6, 5, 10, 50, 0),
             "total_amount": 21500,
             "salesperson": "张三",
@@ -202,6 +205,7 @@ def build_preview_template_context() -> dict:
                     "brand": "Brand-A",
                     "category": "Coat",
                     "image_url": "http://intranet.images/1.jpg",
+                    "image_markdown": "![DRCH042ABK0](http://intranet.images/1.jpg)",
                 },
                 {
                     "barcode": "GDRCH043ACBK0B6360010",
@@ -210,6 +214,7 @@ def build_preview_template_context() -> dict:
                     "brand": "Brand-A",
                     "category": "Coat",
                     "image_url": "http://intranet.images/2.jpg",
+                    "image_markdown": "![DRCH043ABK0](http://intranet.images/2.jpg)",
                 },
             ],
         }
