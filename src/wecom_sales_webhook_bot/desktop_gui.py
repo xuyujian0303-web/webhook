@@ -61,7 +61,10 @@ class DesktopApp:
     def _factory(self):
         factory = create_session_factory(self._database_url())
         initialize_database(factory)
-        return factory
+        # Return an actual SQLAlchemy session.  All callers use this helper
+        # as ``with self._factory() as session``; a ``sessionmaker`` factory
+        # itself is callable but is not a context manager.
+        return factory()
 
     def _build_runtime_tab(self, tabs) -> None:
         page = ttk.Frame(tabs, padding=16); tabs.add(page, text="运行")
