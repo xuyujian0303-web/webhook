@@ -102,8 +102,18 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
         first_product = product_indexes[0] if product_indexes else len(strings)
         header_strings = strings[:first_product]
         store_name = next((x for x in header_strings if x.startswith("G") and len(x) <= 8), "")
-        org_codes = [x for x in header_strings if x.startswith("G") and len(x) <= 8]
-        performance_org = org_codes[1] if len(org_codes) > 1 else store_name
+        # Header field 2 is the selling organization and field 3 is the
+        # performance organization. They often match, but cross-store sales
+        # must preserve both independently.
+        header_orgs = {
+            int(item["field_id"]): str(item["value"]).strip()
+            for item in fields[: max(0, first_product)]
+            if item.get("field_id") in {2, 3}
+            and isinstance(item.get("value"), str)
+            and str(item["value"]).strip().startswith("G")
+        }
+        store_name = header_orgs.get(2, store_name)
+        performance_org = header_orgs.get(3, store_name)
         # The order metadata container (field 19) contains three length-
         # prefixed UTF-8 strings: customer source, activity type and
         # promotion material.  Parse that container locally so values such as

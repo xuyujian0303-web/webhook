@@ -9,6 +9,7 @@ DEFAULT_FORMAT_SETTINGS = {
     "fields": {
         "order_no": {"enabled": True, "label": "销售单号"},
         "store_name": {"enabled": True, "label": "门店"},
+        "performance_org": {"enabled": False, "label": "业绩机构"},
         "sold_at": {"enabled": True, "label": "时间"},
         "total_amount": {"enabled": True, "label": "总金额"},
         "match_reason": {"enabled": True, "label": "命中原因"},

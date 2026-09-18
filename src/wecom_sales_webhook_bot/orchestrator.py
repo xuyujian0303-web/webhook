@@ -149,6 +149,8 @@ def run_once(
                                           rule_name=filter_result.reason or "matched",
                                           status="failed", error_message=str(exc)))
                 db_session.commit()
+            if db_session is None:
+                raise
             continue
         if not dry_run:
             state_store.mark_pushed(order.order_no, order.sold_at)

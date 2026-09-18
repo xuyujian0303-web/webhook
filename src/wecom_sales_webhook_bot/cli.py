@@ -23,7 +23,7 @@ from wecom_sales_webhook_bot.runtime_settings import (
 from wecom_sales_webhook_bot.sqlserver_source import SqlServerSalesDataSource
 from wecom_sales_webhook_bot.ems_source import EmsSalesDataSource
 from wecom_sales_webhook_bot.state_store import PushStateStore
-from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
+from wecom_sales_webhook_bot.wecom_client import MultiWeComWebhookClient, WeComWebhookClient
 from wecom_sales_webhook_bot.web_app import create_app
 
 
@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server"):
+    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server", "desktop-gui"):
         command = subparsers.add_parser(name)
         command.add_argument("--config", required=True)
 
@@ -103,6 +103,13 @@ def serve_web_app(app, host: str, port: int) -> None:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "desktop-gui":
+        from wecom_sales_webhook_bot.desktop_gui import DesktopApp
+        import tkinter as tk
+        root = tk.Tk()
+        DesktopApp(root, Path(args.config).resolve())
+        root.mainloop()
+        return
     config = load_config(Path(args.config))
 
     if args.command == "run-server":
@@ -183,11 +190,10 @@ def main() -> None:
         base_url=f"http://{config.image_service.host}:{config.image_service.port}",
         image_map_csv=image_map_csv,
     )
-    webhook_client = WeComWebhookClient(
-        webhook_url=config.wecom.webhook_url,
-        timeout_seconds=config.wecom.timeout_seconds,
-        retry_times=config.wecom.retry_times,
-    )
+    webhook_client = MultiWeComWebhookClient([
+        WeComWebhookClient(webhook_url=url, timeout_seconds=config.wecom.timeout_seconds, retry_times=config.wecom.retry_times)
+        for url in config.wecom.webhook_urls
+    ])
 
     service_started_at = datetime.now()
 

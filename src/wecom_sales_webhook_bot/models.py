@@ -13,6 +13,7 @@ class SalesLineItem:
     brand: str | None = None
     category: str | None = None
     image_url: str | None = None
+    attributes: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -32,4 +33,5 @@ class SalesOrder:
     card_type: str | None = None
     customer_type: str | None = None
     document_type: str = "sale"
+    attributes: dict[str, object] = field(default_factory=dict)
     items: list[SalesLineItem] = field(default_factory=list)

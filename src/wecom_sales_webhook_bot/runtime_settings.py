@@ -48,7 +48,7 @@ def is_within_push_window(now: datetime, controls: RuntimeControls) -> bool:
 def _parse_condition_value(condition: RuleCondition):
     if condition.field_name == "total_amount" and condition.operator == "gte":
         return float(condition.value_json)
-    if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range"}:
+    if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range", "date_between"}:
         start_value, end_value = condition.value_json.split(",", maxsplit=1)
         return [start_value.strip(), end_value.strip()]
     return [item.strip() for item in condition.value_json.split(",") if item.strip()]
@@ -128,7 +128,8 @@ def load_runtime_settings(database_url: str) -> tuple[list[RuleGroupDTO], str | 
         groups = session.query(RuleGroup).filter_by(is_enabled=True).order_by(RuleGroup.updated_at.desc(), RuleGroup.id.desc()).all()
         conditions = session.query(RuleCondition).all()
         template = load_or_initialize_message_template(session)
+        group_modes = {group.id: group.match_mode for group in groups}
         condition_map: dict[int, list[RuleConditionDTO]] = {}
         for condition in conditions:
-            condition_map.setdefault(condition.rule_group_id, []).append(RuleConditionDTO(field_name=condition.field_name, operator=condition.operator, value=_parse_condition_value(condition)))
+            condition_map.setdefault(condition.rule_group_id, []).append(RuleConditionDTO(field_name=condition.field_name, operator=condition.operator, value=_parse_condition_value(condition), condition_group=getattr(condition, "condition_group", "") or group_modes.get(condition.rule_group_id, "all")))
         return [RuleGroupDTO(name=group.name, match_mode=group.match_mode, conditions=condition_map.get(group.id, [])) for group in groups], template["template_body"]

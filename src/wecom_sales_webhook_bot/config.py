@@ -24,9 +24,14 @@ class ImageServiceConfig:
 
 @dataclass(frozen=True)
 class WeComConfig:
-    webhook_url: str
+    webhook_urls: tuple[str, ...]
     timeout_seconds: int
     retry_times: int
+
+    @property
+    def webhook_url(self) -> str:
+        """Compatibility accessor for older callers and single-URL configs."""
+        return self.webhook_urls[0] if self.webhook_urls else ""
 
 
 @dataclass(frozen=True)
@@ -198,11 +203,18 @@ def load_config(path: Path) -> AppConfig:
 
     store_mapping = {str(key).strip(): str(value).strip() for key, value in (raw.get("store_mapping") or {}).items() if str(key).strip() and str(value).strip()}
 
+    webhook_raw = raw["wecom"].get("webhook_urls", [raw["wecom"].get("webhook_url", "")])
+    if isinstance(webhook_raw, str):
+        webhook_raw = [webhook_raw]
+    webhook_urls = tuple(str(item).strip() for item in webhook_raw if str(item).strip())
+    if not webhook_urls:
+        raise ValueError("wecom.webhook_urls or wecom.webhook_url must contain at least one address")
+
     return AppConfig(
         csv=csv_cfg,
         image_service=img_cfg,
         wecom=WeComConfig(
-            webhook_url=raw["wecom"]["webhook_url"],
+            webhook_urls=webhook_urls,
             timeout_seconds=int(raw["wecom"]["timeout_seconds"]),
             retry_times=int(raw["wecom"]["retry_times"]),
         ),

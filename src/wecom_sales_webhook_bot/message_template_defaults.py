@@ -26,4 +26,21 @@ STANDARD_TEMPLATE = """# 销售晒单
 {% endfor %}
 """
 
-PRESET_TEMPLATES = {"standard": {"label": "自定义模板", "body": STANDARD_TEMPLATE}}
+COMPACT_TEMPLATE = """# 销售晒单
+> 销售单号：{{ order.order_no }}
+> 销售机构：{{ order.store_name }}
+> 业绩机构：{{ order.performance_org }}
+> 销售总金额：{{ order.total_amount | money }}
+{% for item in order.items %}> {{ item.style_no }} {{ item.barcode }} {{ item.image_url }}
+{% endfor %}
+"""
+
+DETAILED_TEMPLATE = STANDARD_TEMPLATE + """
+> 命中规则：{{ order.match_reason }}
+"""
+
+PRESET_TEMPLATES = {
+    "standard": {"label": "标准模板", "body": STANDARD_TEMPLATE},
+    "compact": {"label": "精简模板", "body": COMPACT_TEMPLATE},
+    "detailed": {"label": "详细模板", "body": DETAILED_TEMPLATE},
+}

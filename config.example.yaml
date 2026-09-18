@@ -3,7 +3,9 @@ data_source:
   config_path: ./ems_config.json
 
 wecom:
-  webhook_url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
+  # 可配置一个或多个企业微信群机器人地址；每条销售单会依次推送到全部地址。
+  webhook_urls:
+    - https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY
   timeout_seconds: 5
   retry_times: 2
 
