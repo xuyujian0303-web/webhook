@@ -97,9 +97,31 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
             sold_at = datetime.strptime(created_text or date_text, "%Y%m%d%H%M%S" if created_text else "%Y%m%d")
         except ValueError:
             continue
-        # Header values precede the first product-code string.
-        product_indexes = [i for i, x in enumerate(strings) if len(x) >= 18 and x.startswith("G")]
-        first_product = product_indexes[0] if product_indexes else len(strings)
+        # Header values precede the first item barcode.  In the verified EMS
+        # detail response the item segment is: field 2 = full barcode,
+        # field 12 = product code and field 13 = style/colour code.  Earlier
+        # code chose the next G-prefixed text and consequently exposed the
+        # product code as ``style_no``.  Keep the field IDs here so the three
+        # business fields remain distinct.
+        string_entries = [item for item in fields if isinstance(item.get("value"), str)]
+        product_indexes = [
+            index for index, item in enumerate(string_entries)
+            if item.get("field_id") == 2
+            and len(str(item["value"]).strip()) >= 18
+            and str(item["value"]).strip().startswith("G")
+        ]
+        first_product = product_indexes[0] if product_indexes else len(string_entries)
+        first_product_field_index = next(
+            (
+                index for index, item in enumerate(fields)
+                if item.get("field_id") == 2
+                and isinstance(item.get("value"), str)
+                and len(str(item["value"]).strip()) >= 18
+                and str(item["value"]).strip().startswith("G")
+            ),
+            len(fields),
+        )
+        header_fields = fields[:first_product_field_index]
         header_strings = strings[:first_product]
         store_name = next((x for x in header_strings if x.startswith("G") and len(x) <= 8), "")
         # Header field 2 is the selling organization and field 3 is the
@@ -107,7 +129,7 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
         # must preserve both independently.
         header_orgs = {
             int(item["field_id"]): str(item["value"]).strip()
-            for item in fields[: max(0, first_product)]
+            for item in header_fields
             if item.get("field_id") in {2, 3}
             and isinstance(item.get("value"), str)
             and str(item["value"]).strip().startswith("G")
@@ -139,7 +161,7 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
                     if text and (any(ord(ch) > 127 for ch in text) or text in {"KOS", "无", "其他"}):
                         if text not in utf8_texts:
                             utf8_texts.append(text)
-        amount_values = [x["value"] for x in fields[: max(0, first_product)] if x.get("field_id") == 13 and isinstance(x.get("value"), int)]
+        amount_values = [x["value"] for x in header_fields if x.get("field_id") == 13 and isinstance(x.get("value"), int)]
         if not amount_values:
             marker = b"\x0a\x00\x0d"
             amount_values = [int.from_bytes(record[pos + 3:pos + 11], "big")
@@ -154,9 +176,17 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
             total_amount = 0.0
         items: list[SalesLineItem] = []
         for item_pos, index in enumerate(product_indexes):
-            next_index = product_indexes[item_pos + 1] if item_pos + 1 < len(product_indexes) else len(strings)
-            barcode = strings[index]
-            style_no = next((x for x in strings[index + 1:next_index] if len(x) >= 8 and x.startswith("G")), barcode)
+            next_index = product_indexes[item_pos + 1] if item_pos + 1 < len(product_indexes) else len(string_entries)
+            item_fields = string_entries[index:next_index]
+            barcode = str(string_entries[index]["value"]).strip()
+            product_code = next(
+                (str(item["value"]).strip() for item in item_fields[1:] if item.get("field_id") == 12 and str(item["value"]).strip()),
+                barcode,
+            )
+            style_no = next(
+                (str(item["value"]).strip() for item in item_fields[1:] if item.get("field_id") == 13 and str(item["value"]).strip()),
+                product_code,
+            )
             price = 0.0
             # The first field-7 value after this product marker belongs to it.
             product_seen = False
@@ -169,7 +199,13 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
                         raw_price -= (1 << 64)
                     price = raw_price / 1000
                     break
-            items.append(SalesLineItem(barcode=barcode, style_no=style_no, unit_price=price, image_url=f"http://giada-erp.redstone.com.cn/giada/images/{style_no}_01.jpg"))
+            items.append(SalesLineItem(
+                barcode=barcode,
+                style_no=style_no,
+                unit_price=price,
+                image_url=f"http://giada-erp.redstone.com.cn/giada/images/{style_no}_01.jpg",
+                attributes={"product_code": product_code, "item_id": product_code},
+            ))
         salesperson = next((str(x.get("value")).strip() for x in fields
                             if x.get("field_id") == 17 and isinstance(x.get("value"), str)
                             and str(x.get("value")).strip()), None)
