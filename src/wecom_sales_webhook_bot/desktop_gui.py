@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import tkinter as tk
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -23,6 +23,7 @@ from wecom_sales_webhook_bot.message_template_service import (
 from wecom_sales_webhook_bot.rule_models import JobRun, PushRecord, RuleCondition, RuleGroup
 from wecom_sales_webhook_bot.rule_service import operators_for_field
 from wecom_sales_webhook_bot.sales_fields import FIELD_LABELS, selectable_fields
+from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
 OPERATOR_LABELS = {
@@ -32,6 +33,25 @@ OPERATOR_LABELS = {
     "date_between": "日期区间", "between_time": "时段", "before": "早于", "after": "晚于",
     "is_empty": "为空", "is_not_empty": "不为空",
 }
+OPERATOR_FORMATS = {
+    "equals": "精确值", "not_equals": "精确值", "contains": "文本", "not_contains": "文本",
+    "in": "值1,值2", "not_in": "值1,值2", "starts_with": "文本", "ends_with": "文本",
+    "gt": "数字", "gte": "数字", "lt": "数字", "lte": "数字", "between": "最小值,最大值",
+    "date_between": "YYYY-MM-DD,YYYY-MM-DD（结束可留空）", "between_time": "HH:MM,HH:MM",
+    "before": "YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS", "after": "YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS",
+    "is_empty": "无需填写", "is_not_empty": "无需填写",
+}
+OPERATOR_CHOICE_TO_KEY = {
+    f"{label}（{OPERATOR_FORMATS[key]}）": key for key, label in OPERATOR_LABELS.items()
+}
+
+
+def _operator_choice(operator: str) -> str:
+    return next(choice for choice, key in OPERATOR_CHOICE_TO_KEY.items() if key == operator)
+
+
+def _operator_choices(field_name: str) -> list[str]:
+    return [_operator_choice(operator) for operator in operators_for_field(field_name)]
 FIELD_CHOICES = [f"{label} [{key}]" for key, label, _ in selectable_fields()]
 FIELD_FROM_CHOICE = {f"{label} [{key}]": key for key, label, _ in selectable_fields()}
 
@@ -181,21 +201,24 @@ class DesktopApp:
         dialog = tk.Toplevel(self.root); dialog.title("编辑筛选规则" if existing else "新建筛选规则"); dialog.geometry("1020x560")
         name, enabled = tk.StringVar(value=existing.name if existing else ""), tk.BooleanVar(value=existing.is_enabled if existing else True)
         ttk.Label(dialog, text="规则名称").grid(row=0, column=0, padx=8, pady=8, sticky="w"); ttk.Entry(dialog, textvariable=name, width=42).grid(row=0, column=1, sticky="w"); ttk.Checkbutton(dialog, text="启用", variable=enabled).grid(row=0, column=2, sticky="w")
-        for col, title in enumerate(("条件组", "EMS 销售详单字段", "运算符", "值（列表/区间用英文逗号分隔）")): ttk.Label(dialog, text=title).grid(row=1, column=col)
+        for col, title in enumerate(("条件组", "EMS 销售详单字段", "运算符（括号内为输入格式）", "值")): ttk.Label(dialog, text=title).grid(row=1, column=col)
         frame = ttk.Frame(dialog); frame.grid(row=2, column=0, columnspan=4, sticky="nsew")
         rows: list[dict] = []
         def add_row(group="all", choice=FIELD_CHOICES[0], operator=None, value=""):
             line = ttk.Frame(frame); line.pack(fill="x", pady=3)
             group_var, field_var = tk.StringVar(value=group), tk.StringVar(value=choice)
-            key = FIELD_FROM_CHOICE.get(choice, "order_no"); operator_var = tk.StringVar(value=operator or operators_for_field(key)[0])
+            key = FIELD_FROM_CHOICE.get(choice, "order_no")
+            operator_var = tk.StringVar(value=_operator_choice(operator or operators_for_field(key)[0]))
             ttk.Combobox(line, values=("all", "any"), textvariable=group_var, width=10, state="readonly").pack(side="left", padx=4)
             field_box = ttk.Combobox(line, values=FIELD_CHOICES, textvariable=field_var, width=29, state="readonly"); field_box.pack(side="left", padx=4)
-            op_box = ttk.Combobox(line, values=operators_for_field(key), textvariable=operator_var, width=20, state="readonly"); op_box.pack(side="left", padx=4)
+            op_box = ttk.Combobox(line, values=_operator_choices(key), textvariable=operator_var, width=38, state="readonly"); op_box.pack(side="left", padx=4)
             entry = ttk.Entry(line, width=45); entry.insert(0, value); entry.pack(side="left", padx=4)
             row = {"line": line, "group": group_var, "field": field_var, "operator": operator_var, "entry": entry}
             def update(*_):
-                allowed = operators_for_field(FIELD_FROM_CHOICE.get(field_var.get(), "order_no")); op_box["values"] = allowed
-                if operator_var.get() not in allowed: operator_var.set(allowed[0])
+                allowed = operators_for_field(FIELD_FROM_CHOICE.get(field_var.get(), "order_no"))
+                choices = _operator_choices(FIELD_FROM_CHOICE.get(field_var.get(), "order_no"))
+                op_box["values"] = choices
+                if OPERATOR_CHOICE_TO_KEY.get(operator_var.get()) not in allowed: operator_var.set(choices[0])
             field_var.trace_add("write", update)
             ttk.Button(line, text="删除", command=lambda: (line.destroy(), rows.remove(row))).pack(side="left"); rows.append(row)
         for c in conditions or []:
@@ -203,11 +226,16 @@ class DesktopApp:
             add_row(c.condition_group or "all", choice if choice in FIELD_FROM_CHOICE else FIELD_CHOICES[0], c.operator, c.value_json)
         if not rows: add_row("all", "销售机构 [store_name]", "in"); add_row("any", "业绩机构 [performance_org]", "in")
         ttk.Button(dialog, text="增加条件", command=add_row).grid(row=3, column=0, sticky="w", padx=8, pady=12)
+        ttk.Label(
+            dialog,
+            text="日期筛选示例：选择“销售日期” + “日期区间（YYYY-MM-DD,YYYY-MM-DD）”，填写 2026-09-18, 表示从 2026-09-18 起（含当天）；填写 2026-09-18,2026-09-30 表示闭区间。",
+            wraplength=780,
+        ).grid(row=4, column=0, columnspan=4, sticky="w", padx=8)
         def save():
             if not name.get().strip(): messagebox.showerror("无法保存", "请填写规则名称"); return
             payloads = []
             for row in rows:
-                op, value = row["operator"].get(), row["entry"].get().strip()
+                op, value = OPERATOR_CHOICE_TO_KEY[row["operator"].get()], row["entry"].get().strip()
                 if op not in {"is_empty", "is_not_empty"} and not value: continue
                 field = FIELD_FROM_CHOICE[row["field"].get()]
                 payloads.append((row["group"].get(), field, op, value))
@@ -286,7 +314,16 @@ class DesktopApp:
 
     def _build_history_tab(self, tabs) -> None:
         page = ttk.Frame(tabs, padding=12); tabs.add(page, text="推送记录与状态")
-        ttk.Button(page, text="刷新状态与最近记录", command=self.refresh_history).pack(anchor="w")
+        controls = ttk.Frame(page); controls.pack(fill="x")
+        ttk.Button(controls, text="刷新状态与最近记录", command=self.refresh_history).pack(side="left")
+        ttk.Button(controls, text="全选当前记录", command=self.select_all_records).pack(side="left", padx=8)
+        ttk.Button(controls, text="删除选中并允许重新推送", command=self.delete_selected_records).pack(side="left")
+        ttk.Button(controls, text="清空全部推送状态", command=self.clear_all_push_state).pack(side="left", padx=8)
+        date_bar = ttk.Frame(page); date_bar.pack(fill="x", pady=(10, 0))
+        ttk.Label(date_bar, text="重新读取起始日期（YYYY-MM-DD）：").pack(side="left")
+        self.rescan_start_date = tk.StringVar(value=datetime.now().date().isoformat())
+        ttk.Entry(date_bar, textvariable=self.rescan_start_date, width=16).pack(side="left", padx=6)
+        ttk.Label(date_bar, text="删除记录后会从此日期重新读取；删除后点击“立即执行一轮”才会重新推送。清空全部前请务必设置合适的起始日期。", wraplength=650).pack(side="left", padx=8)
         self.history_status = tk.StringVar(value="点击刷新以查看最近执行情况"); ttk.Label(page, textvariable=self.history_status, wraplength=900).pack(anchor="w", pady=10)
         columns = ("time", "order", "store", "amount", "rule", "status", "error"); self.record_tree = ttk.Treeview(page, columns=columns, show="headings", height=18)
         for key, label, width in (("time", "时间", 135), ("order", "销售单号", 150), ("store", "销售机构", 100), ("amount", "金额", 80), ("rule", "规则", 130), ("status", "状态", 80), ("error", "错误", 260)): self.record_tree.heading(key, text=label); self.record_tree.column(key, width=width, anchor="w")
@@ -297,8 +334,60 @@ class DesktopApp:
             with self._factory() as session:
                 latest = session.query(JobRun).order_by(JobRun.created_at.desc()).first(); rows = session.query(PushRecord).order_by(PushRecord.created_at.desc()).limit(50).all()
                 self.history_status.set(f"最近扫描：{(latest.created_at + timedelta(hours=8)):%Y-%m-%d %H:%M:%S}；状态 {latest.status}；成功 {latest.success_count}；失败 {latest.failed_count}。" if latest else "尚未执行扫描任务。")
-                for row in rows: self.record_tree.insert("", "end", values=(row.created_at + timedelta(hours=8), row.order_no, row.store_name, f"{row.total_amount:.2f}", row.rule_name, row.status, row.error_message or ""))
+                for row in rows: self.record_tree.insert("", "end", iid=str(row.id), values=(row.created_at + timedelta(hours=8), row.order_no, row.store_name, f"{row.total_amount:.2f}", row.rule_name, row.status, row.error_message or ""))
         except Exception as exc: self.history_status.set(f"读取记录失败：{exc}")
+
+    def _state_file(self) -> Path:
+        configured = str((self.raw.get("runtime") or {}).get("state_file", "./var/push-state.json"))
+        path = Path(configured)
+        return path if path.is_absolute() else (self.config_path.parent / path).resolve()
+
+    def _rescan_from(self) -> datetime:
+        try:
+            return datetime.strptime(self.rescan_start_date.get().strip(), "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("重新读取起始日期必须填写 YYYY-MM-DD，例如 2026-09-18") from exc
+
+    def select_all_records(self) -> None:
+        self.record_tree.selection_set(self.record_tree.get_children())
+
+    def delete_selected_records(self) -> None:
+        selected = self.record_tree.selection()
+        if not selected:
+            messagebox.showinfo("请选择记录", "请先选择需要允许重新推送的销售单；也可以点击“全选当前记录”。")
+            return
+        try:
+            rescan_from = self._rescan_from()
+            if not messagebox.askyesno("确认重新推送", f"删除 {len(selected)} 条推送记录，并从 {rescan_from:%Y-%m-%d} 重新读取销售单？\n\n删除后请点击“立即执行一轮”或等待下一次扫描。"):
+                return
+            with self._factory() as session:
+                records = session.query(PushRecord).filter(PushRecord.id.in_([int(item) for item in selected])).all()
+                order_nos = [record.order_no for record in records]
+                session.query(PushRecord).filter(PushRecord.id.in_([int(item) for item in selected])).delete(synchronize_session=False)
+                session.commit()
+            state = PushStateStore(self._state_file())
+            state.remove_orders(order_nos)
+            state.set_last_scan_at(rescan_from)
+            self.refresh_history()
+            self.history_status.set(f"已删除 {len(order_nos)} 条记录；下一轮将从 {rescan_from:%Y-%m-%d} 重新读取。")
+        except Exception as exc:
+            messagebox.showerror("无法删除记录", str(exc))
+
+    def clear_all_push_state(self) -> None:
+        try:
+            rescan_from = self._rescan_from()
+            if not messagebox.askyesno("高风险确认", f"将删除全部推送记录并清空全部已推送标记，下一轮会从 {rescan_from:%Y-%m-%d} 重新推送所有符合当前规则的销售单。\n\n这通常会产生大量重复消息，确认继续？"):
+                return
+            with self._factory() as session:
+                session.query(PushRecord).delete()
+                session.commit()
+            state = PushStateStore(self._state_file())
+            state.clear()
+            state.set_last_scan_at(rescan_from)
+            self.refresh_history()
+            self.history_status.set(f"已清空全部推送状态；下一轮将从 {rescan_from:%Y-%m-%d} 重新读取。")
+        except Exception as exc:
+            messagebox.showerror("无法清空推送状态", str(exc))
 
     def save_config(self) -> bool:
         try:
