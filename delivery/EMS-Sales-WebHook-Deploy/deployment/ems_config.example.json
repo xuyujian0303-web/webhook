@@ -1,0 +1,9 @@
+{
+  "username": "",
+  "password": "",
+  "auth_host": "giada-erp.redstone.com.cn",
+  "auth_port": 9999,
+  "data_host": "giada-erp.redstone.com.cn",
+  "data_port": 9100,
+  "timeout_seconds": 15
+}

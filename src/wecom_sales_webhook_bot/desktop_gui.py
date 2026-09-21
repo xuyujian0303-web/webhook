@@ -52,8 +52,15 @@ def _operator_choice(operator: str) -> str:
 
 def _operator_choices(field_name: str) -> list[str]:
     return [_operator_choice(operator) for operator in operators_for_field(field_name)]
-FIELD_CHOICES = [f"{label} [{key}]" for key, label, _ in selectable_fields()]
-FIELD_FROM_CHOICE = {f"{label} [{key}]": key for key, label, _ in selectable_fields()}
+EMS_SERVER_FIELDS = {"store_name", "total_amount", "document_type", "unit_price", "discount", "season", "shipment_group"}
+
+def _field_choice(key: str, label: str) -> str:
+    location = "EMS server filter" if key in EMS_SERVER_FIELDS else "Local filter after download"
+    return f"{label} [{key}] [{location}]"
+
+FIELD_CHOICES = [_field_choice(key, label) for key, label, _ in selectable_fields()]
+FIELD_FROM_CHOICE = {_field_choice(key, label): key for key, label, _ in selectable_fields()}
+FIELD_CHOICE_BY_KEY = {key: _field_choice(key, label) for key, label, _ in selectable_fields()}
 
 
 class DesktopApp:
@@ -98,17 +105,19 @@ class DesktopApp:
         }
         self.runtime_vars = {key: tk.StringVar(value=str(runtime.get(key, default))) for key, (_, default) in fields.items()}
         self.dry_run = tk.BooleanVar(value=bool(runtime.get("dry_run", True)))
+        self.return_whole_order = tk.BooleanVar(value=bool(runtime.get("return_whole_order", True)))
         for row, (key, (label, _)) in enumerate(fields.items()):
             ttk.Label(page, text=label).grid(row=row, column=0, sticky="w", pady=6)
             ttk.Entry(page, textvariable=self.runtime_vars[key], width=28).grid(row=row, column=1, sticky="w", padx=8)
         ttk.Checkbutton(page, text="演练模式（只读取和筛选，不实际推送）", variable=self.dry_run).grid(row=5, column=0, columnspan=2, sticky="w", pady=10)
-        buttons = ttk.Frame(page); buttons.grid(row=6, column=0, columnspan=2, sticky="w", pady=10)
+        ttk.Checkbutton(page, text="返回包含筛选条件的整个销售单", variable=self.return_whole_order).grid(row=6, column=0, columnspan=2, sticky="w", pady=4)
+        buttons = ttk.Frame(page); buttons.grid(row=7, column=0, columnspan=2, sticky="w", pady=10)
         ttk.Button(buttons, text="保存运行配置", command=self.save_config).pack(side="left")
         ttk.Button(buttons, text="立即执行一轮", command=lambda: self._run_cli("run-once")).pack(side="left", padx=8)
         ttk.Button(buttons, text="启动持续扫描", command=lambda: self._run_cli("schedule", True)).pack(side="left")
         ttk.Button(buttons, text="停止持续扫描", command=self.stop_schedule).pack(side="left", padx=8)
         self.status = tk.StringVar(value="就绪")
-        ttk.Label(page, textvariable=self.status, wraplength=850).grid(row=7, column=0, columnspan=3, sticky="w", pady=20)
+        ttk.Label(page, textvariable=self.status, wraplength=850).grid(row=8, column=0, columnspan=3, sticky="w", pady=20)
 
     def _build_webhook_tab(self, tabs) -> None:
         page = ttk.Frame(tabs, padding=16); tabs.add(page, text="Webhook")
@@ -222,7 +231,7 @@ class DesktopApp:
             field_var.trace_add("write", update)
             ttk.Button(line, text="删除", command=lambda: (line.destroy(), rows.remove(row))).pack(side="left"); rows.append(row)
         for c in conditions or []:
-            label = FIELD_LABELS.get(c.field_name, c.field_name); choice = f"{label} [{c.field_name}]"
+            label = FIELD_LABELS.get(c.field_name, c.field_name); choice = FIELD_CHOICE_BY_KEY.get(c.field_name, FIELD_CHOICES[0])
             add_row(c.condition_group or "all", choice if choice in FIELD_FROM_CHOICE else FIELD_CHOICES[0], c.operator, c.value_json)
         if not rows: add_row("all", "销售机构 [store_name]", "in"); add_row("any", "业绩机构 [performance_org]", "in")
         ttk.Button(dialog, text="增加条件", command=add_row).grid(row=3, column=0, sticky="w", padx=8, pady=12)
@@ -321,8 +330,9 @@ class DesktopApp:
         ttk.Button(controls, text="清空全部推送状态", command=self.clear_all_push_state).pack(side="left", padx=8)
         date_bar = ttk.Frame(page); date_bar.pack(fill="x", pady=(10, 0))
         ttk.Label(date_bar, text="重新读取起始日期（YYYY-MM-DD）：").pack(side="left")
-        self.rescan_start_date = tk.StringVar(value=datetime.now().date().isoformat())
+        self.rescan_start_date = tk.StringVar(value=str((self.raw.get("runtime") or {}).get("rescan_start_date") or datetime.now().date().isoformat()))
         ttk.Entry(date_bar, textvariable=self.rescan_start_date, width=16).pack(side="left", padx=6)
+        ttk.Button(date_bar, text="保存日期", command=self.save_rescan_start_date).pack(side="left", padx=4)
         ttk.Label(date_bar, text="删除记录后会从此日期重新读取；删除后点击“立即执行一轮”才会重新推送。清空全部前请务必设置合适的起始日期。", wraplength=650).pack(side="left", padx=8)
         self.history_status = tk.StringVar(value="点击刷新以查看最近执行情况"); ttk.Label(page, textvariable=self.history_status, wraplength=900).pack(anchor="w", pady=10)
         columns = ("time", "order", "store", "amount", "rule", "status", "error"); self.record_tree = ttk.Treeview(page, columns=columns, show="headings", height=18)
@@ -341,6 +351,18 @@ class DesktopApp:
         configured = str((self.raw.get("runtime") or {}).get("state_file", "./var/push-state.json"))
         path = Path(configured)
         return path if path.is_absolute() else (self.config_path.parent / path).resolve()
+
+    def save_rescan_start_date(self) -> None:
+        try:
+            value = self.rescan_start_date.get().strip()
+            datetime.strptime(value, "%Y-%m-%d")
+            self.raw.setdefault("runtime", {})["rescan_start_date"] = value
+            self.config_path.write_text(yaml.safe_dump(self.raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            self.history_status.set(f"重推起始日期已保存：{value}")
+        except ValueError:
+            messagebox.showerror("日期格式错误", "请输入 YYYY-MM-DD，例如 2026-09-19")
+        except Exception as exc:
+            messagebox.showerror("保存日期失败", str(exc))
 
     def _rescan_from(self) -> datetime:
         try:
@@ -394,6 +416,7 @@ class DesktopApp:
             runtime = self.raw.setdefault("runtime", {})
             for key, var in self.runtime_vars.items(): runtime[key] = int(var.get()) if key.endswith("seconds") or key == "max_images_per_message" else var.get().strip()
             runtime["dry_run"] = self.dry_run.get()
+            runtime["return_whole_order"] = self.return_whole_order.get()
             urls = [x.strip() for x in self.webhook_text.get("1.0", "end").splitlines() if x.strip()]
             if not urls: raise ValueError("至少填写一个 Webhook 地址")
             wecom = self.raw.setdefault("wecom", {}); wecom.pop("webhook_url", None); wecom["webhook_urls"] = urls

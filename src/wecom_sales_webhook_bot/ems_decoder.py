@@ -129,18 +129,19 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
         header_fields = fields[:first_product_field_index]
         header_strings = strings[:first_product]
         store_name = next((x for x in header_strings if x.startswith("G") and len(x) <= 8), "")
-        # Header field 2 is the selling organization and field 3 is the
-        # performance organization. They often match, but cross-store sales
-        # must preserve both independently.
-        header_orgs = {
-            int(item["field_id"]): str(item["value"]).strip()
-            for item in header_fields
-            if item.get("field_id") in {2, 3}
-            and isinstance(item.get("value"), str)
-            and str(item["value"]).strip().startswith("G")
-        }
-        store_name = header_orgs.get(2, store_name)
-        performance_org = header_orgs.get(3, store_name)
+        # The organization container repeats field ids 2 and 3.  Its first
+        # organization pair is the business/selling organization (G00J in
+        # the verified samples); the next pair is the performance
+        # organization (G887/G820).  A dict keyed only by field id loses the
+        # first value, so preserve occurrence order and use the first two
+        # distinct organization values.
+        header_orgs: list[str] = []
+        for item in header_fields:
+            value = str(item.get("value", "")).strip()
+            if item.get("field_id") in {2, 3} and value.startswith("G") and value not in header_orgs:
+                header_orgs.append(value)
+        store_name = header_orgs[0] if header_orgs else store_name
+        performance_org = header_orgs[1] if len(header_orgs) > 1 else store_name
         # The order metadata container (field 19) contains three length-
         # prefixed UTF-8 strings: customer source, activity type and
         # promotion material.  Parse that container locally so values such as

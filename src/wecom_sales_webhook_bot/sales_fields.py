@@ -26,6 +26,8 @@ EMS_FIELD_DEFINITIONS: tuple[tuple[str, str, str], ...] = (
     ("total_amount", "总金额", "number"),
     ("product_code", "产品编码", "text"),
     ("style_no", "款色码", "text"),
+    ("season", "季号", "text"),
+    ("shipment_group", "出货组别", "text"),
     ("item_id", "ItemID", "text"),
     ("barcode", "商品条码", "text"),
     ("category", "类别", "text"),
@@ -74,7 +76,7 @@ def order_field_values(order: SalesOrder, field_name: str) -> list[str]:
     group-level AND/OR behaviour is handled by the rule service.
     """
     field_name = canonical_field_name(field_name)
-    if field_name in {"product_code", "barcode", "style_no", "unit_price", "brand", "category"}:
+    if field_name in {"product_code", "barcode", "style_no", "unit_price", "brand", "category", "season", "shipment_group"}:
         values: list[Any] = []
         for item in order.items:
             values.append(getattr(item, field_name, None))

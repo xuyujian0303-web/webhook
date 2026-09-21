@@ -1,206 +1,63 @@
-# AGENTS.md
+# 项目协作交接
 
-## 项目定位
+## 项目
 
-这是一个企业微信销售晒单推送项目，当前目标是形成两部分：
+本仓库是企业微信销售单推送机器人，目录为 `C:\Users\redstone\webhook`。当前主运行方式是 Windows 桌面 GUI；项目也保留 Flask 网页配置和 Windows 部署脚本。
 
-1. 一个可持续运行的扫描/推送进程
-2. 一个可配置规则、模板和运行参数的后台管理网页
+新对话开始时，先阅读本文件和 `docs/project-handoff-zh.md`，再检查工作区状态。不要凭旧上下文假设协议字段或配置路径。
 
-当前项目已经支持：
+## 当前入口
 
-- 企业微信 `markdown_v2` 推送
-- CSV 数据源
-- SQL Server 数据源
-- 本地图片目录 / 图片映射 CSV / 公网图片 URL
-- 后台网页中的规则管理、模板管理、运行配置、手动测试、推送记录、系统状态
+```powershell
+Set-Location C:\Users\redstone\webhook
+$env:PYTHONPATH="src"
+python -m wecom_sales_webhook_bot.cli desktop-gui --config config.local.yaml
+```
 
-## 当前工作目录
+持续扫描由 GUI 的“启动持续扫描”按钮启动，等价于：
 
-项目根目录：
+```powershell
+python -u -m wecom_sales_webhook_bot.cli schedule --config config.local.yaml
+```
 
-`C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl`
+单轮扫描：
 
-交接文档优先阅读：
+```powershell
+python -u -m wecom_sales_webhook_bot.cli run-once --config config.local.yaml
+```
 
-`docs/superpowers/plans/2026-05-30-wecom-sales-webhook-bot-handoff-zh.md`
+## 重要边界
 
-## 用户偏好
+- EMS 只读；不要调用新增、修改或删除接口。
+- 不要把 `config.local.yaml`、`ems_config.json`、真实 Webhook、密码、`var/` 运行状态、原始抓包或销售导出文件提交到 Git。
+- 图片推送必须继续使用原始 Markdown 图片格式 `![款号](URL)`，不要降级为普通链接。
+- 不要为了验证而重复发送真实 Webhook，除非用户明确要求。
+- 不要回滚工作区中用户已有的改动。
 
-- 全程中文
-- 直接执行，不先空讲大方案
-- 给出可直接复制的 PowerShell 命令
-- 优先保证可测试、可部署、可交接给 IT
-- 不要擅自删除本地测试文件、配置文件、`var/`、`tmp/` 等用户可能仍在使用的内容
+## 已验证的 EMS 结论
 
-## 正确 CLI 命令
+真实抓包 `0920 ems 1.pcapng` 已确认销售详单是“起始日期至服务器当前日期”的范围查询，不是按天查询。请求中：
 
-入口模块：
+- `0x2712` 是固定协议基准日期，抓包值为 `20230920`。
+- 参数 `3` 是起始日期，例如 `20260919`。
+- 查询上限由 EMS 当前日期处理，代码传入的 `end_date` 不能被错误写入参数 3。
+- 抓包还验证了金额、折扣、季号、出货组别等字段的参数编号。
 
-`python -m wecom_sales_webhook_bot.cli`
+修正后真实只读查询 `20260919` 返回 509 条，日期包含 `2026-09-19`、`2026-09-20`、`2026-09-21`。
 
-当前支持的命令只有：
-
-- `run-server`
-- `schedule`
-- `run-once`
-- `serve-images`
-- `clear-state`
-
-注意：
-
-- 不要使用 `run-admin`
-- 后台网页启动命令是 `run-server`
-
-## 本地运行环境
-
-进入项目目录后，先设置：
+## 开发验证
 
 ```powershell
 $env:PYTHONPATH="src"
+python -m compileall -q src
+pytest -q
 ```
 
-当前用户机器上的 Python 解释器通常使用：
+Windows 临时目录权限可能导致 pytest 收集阶段报 `WinError 5`；这不是业务断言失败，需要单独处理测试环境权限。
 
-```powershell
-"C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe"
-```
+## 修改优先级
 
-## 常用启动命令
-
-### 1. 启动后台网页
-
-```powershell
-cd C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl
-$env:PYTHONPATH="src"
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -u -m wecom_sales_webhook_bot.cli run-server --config config.sqlserver.local.yaml
-```
-
-### 2. 启动持续扫描进程
-
-```powershell
-cd C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl
-$env:PYTHONPATH="src"
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -u -m wecom_sales_webhook_bot.cli schedule --config config.sqlserver.local.yaml
-```
-
-### 3. 手动执行一轮扫描
-
-```powershell
-cd C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl
-$env:PYTHONPATH="src"
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -u -m wecom_sales_webhook_bot.cli run-once --config config.sqlserver.local.yaml
-```
-
-### 4. 启动本地图片服务
-
-```powershell
-cd C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl
-$env:PYTHONPATH="src"
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -u -m wecom_sales_webhook_bot.cli serve-images --config config.sqlserver.local.yaml
-```
-
-## 配置文件约定
-
-当前仓库里可能同时存在多份配置文件，例如：
-
-- `config.yaml`
-- `config.real-test.yaml`
-- `config.sqlserver.local.yaml`
-- `config.sqlserver.local.5055.yaml`
-- `datasource.local.yaml`
-- `datasource.example.yaml`
-
-约定：
-
-- 做 SQL Server 本地测试时，优先看 `config.sqlserver.local.yaml`
-- 需要确认数据源连接细节时，同时查看 `data_source.config_path` 指向的配置文件
-- 不要假设当前使用的是 CSV；先看配置
-
-## 当前实现重点
-
-### 数据源
-
-- 已支持 CSV 和 SQL Server
-- 当前项目方向以 SQL Server 为主，CSV 更偏原型/兼容测试
-
-### 推送
-
-- 企业微信使用 `markdown_v2`
-- webhook 仅在返回 `errcode == 0` 时记为成功
-- 已支持串行限流发送
-- 运行配置里已有：
-  - `scan_interval_seconds`
-  - `max_images_per_message`
-  - `push_interval_seconds`
-
-### 图片
-
-- 支持按 `barcode` 查图
-- 找不到时回退到 `style_no`
-- 支持图片映射 CSV
-- 支持公网 URL 图床测试
-
-### 后台网页
-
-当前后台已包含：
-
-- 规则管理
-- 消息模板管理
-- 运行配置
-- 手动测试
-- 推送记录
-- 系统状态
-
-规则支持：
-
-- 新建
-- 停用
-- 恢复
-- 硬删除
-
-模板支持：
-
-- 多模板保存
-- 切换启用模板
-- 另存为
-- 删除
-- 预览
-
-## 已知坑点
-
-- `run-admin` 是错误命令，正确命令是 `run-server`
-- PowerShell 里路径带空格时，Python 路径必须整体加引号
-- 有些中文乱码问题并不是 HTML 模板本身坏了，而是 Python 运行时字符串损坏
-- `apply_patch` 在这个 Windows 环境下偶尔会失败；必要时可用提权 PowerShell 写文件，但不要用破坏性命令
-- 仓库里可能存在用户手工测试留下的文件，不要擅自清理
-
-## 修改代码时的优先级
-
-1. 先确认当前配置文件和命令真实可用
-2. 先修可测试链路，再做结构优化
-3. 先保证网页配置能落到实际运行链路
-4. 任何“完成”结论前先跑相关 pytest
-
-## 推荐回归测试
-
-至少优先跑相关测试，而不是盲目全量：
-
-```powershell
-$env:PYTHONPATH="src"
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -m pytest tests\test_web_text_labels.py -q
-& "C:\Users\x\Desktop\HeyGem数字人\Infinite talk\InfiniteTalk-new-fix\InfiniteTalk\py312\python.exe" -m pytest tests\test_runtime_settings_web_app.py tests\test_message_template_engine.py -q
-```
-
-如改动涉及配置、调度、推送链路，再补跑对应测试文件。
-
-## 新会话接手时的最小上下文
-
-如果需要压缩上下文并重开对话，先告知：
-
-1. 项目目录是 `C:\Users\x\wecom-sales-webhook-bot\.worktrees\wecom-bot-impl`
-2. 先看交接文档 `docs/superpowers/plans/2026-05-30-wecom-sales-webhook-bot-handoff-zh.md`
-3. 当前目标通常是：
-   - 继续完成后台网页 / 推送链路 / SQL Server 测试
-   - 或整理最终部署结构并准备交接 IT
-
+1. 先确认 `config.local.yaml`、`runtime.rescan_start_date`、`var/push-state.json` 和运行进程。
+2. EMS 协议改动必须基于真实抓包帧，并用只读服务器查询验证返回日期分布。
+3. 规则字段要区分 EMS 服务器筛选和解码后的本地筛选。
+4. 修改完成后运行编译检查和针对性测试，再更新交接文档。

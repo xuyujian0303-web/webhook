@@ -258,6 +258,10 @@ def build_markdown_v2_message(
                 },
             },
         )
+        normalized = rendered.text.replace("> 图片：![", "![").replace("> 图片:![", "![")
+        if len(normalized.encode("utf-8")) <= max_bytes:
+            return normalized
+        return _trim_lines_to_max_bytes(normalized.splitlines(), max_bytes)
         if rendered.byte_length <= max_bytes:
             return rendered.text
         return _trim_lines_to_max_bytes(rendered.text.splitlines(), max_bytes)

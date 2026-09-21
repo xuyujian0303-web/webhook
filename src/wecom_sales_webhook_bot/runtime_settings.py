@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
@@ -20,6 +20,7 @@ class RuntimeControls:
     push_window_start: str = "10:00"
     push_window_end: str = "22:00"
     show_chinese_org_names: bool = False
+    return_whole_order: bool = True
 
 
 DEFAULT_RUNTIME_CONTROLS = RuntimeControls(
@@ -46,7 +47,7 @@ def is_within_push_window(now: datetime, controls: RuntimeControls) -> bool:
 
 
 def _parse_condition_value(condition: RuleCondition):
-    if condition.field_name == "total_amount" and condition.operator == "gte":
+    if condition.field_name in {"total_amount", "unit_price", "discount", "actual_discount"} and condition.operator in {"equals", "gt", "gte", "lt", "lte"}:
         return float(condition.value_json)
     if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range", "date_between"}:
         start_value, end_value = condition.value_json.split(",", maxsplit=1)
@@ -62,6 +63,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
     push_window_start = str(payload.get("push_window_start", defaults.push_window_start))
     push_window_end = str(payload.get("push_window_end", defaults.push_window_end))
     show_chinese_org_names = bool(payload.get("show_chinese_org_names", defaults.show_chinese_org_names))
+    return_whole_order = bool(payload.get("return_whole_order", defaults.return_whole_order))
     if scan_interval_seconds <= 0:
         raise ValueError("scan_interval_seconds must be > 0")
     if max_images_per_message <= 0:
@@ -77,6 +79,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
         push_window_start=push_window_start,
         push_window_end=push_window_end,
         show_chinese_org_names=show_chinese_org_names,
+        return_whole_order=return_whole_order,
     )
 
 

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import time
@@ -56,9 +56,10 @@ def run_once(
         # the exact wire-level query implementation; the orchestrator only
         # supplies a date window.
         last_scan = state_store.get_last_scan_at()
-        scan_start = last_scan or service_started_at
+        scan_start = service_started_at if last_scan is None else min(last_scan, service_started_at)
         scan_end = now_func()
         query_kwargs = {"start_at": scan_start, "end_at": scan_end}
+        local_rule_groups = database_rule_groups
         # A single enabled ALL-rule can safely be pushed down to the EMS
         # adapter. OR-rules must stay post-query or valid orders could be lost.
         if database_rule_groups and len(database_rule_groups) == 1:
@@ -66,16 +67,32 @@ def run_once(
             if getattr(group, "match_mode", None) == "all":
                 conditions = getattr(group, "conditions", [])
                 amount = next((float(c.value) for c in conditions
-                               if c.field_name == "total_amount" and c.operator == "gte"), None)
+                               if c.field_name == "total_amount" and c.operator in {"gt", "gte"}), None)
+                discount = next((float(c.value) for c in conditions
+                                 if c.field_name in {"discount", "actual_discount"} and c.operator in {"gt", "gte"}), None)
+                unit_price = next((float(c.value) for c in conditions
+                                   if c.field_name == "unit_price" and c.operator in {"gt", "gte"}), None)
+                seasons = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                                if c.field_name == "season" and c.operator in {"equals", "in"}), None)
+                shipment_groups = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                                        if c.field_name == "shipment_group" and c.operator in {"equals", "in"}), None)
                 stores = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
                                if c.field_name == "store_name" and c.operator == "in"), None)
                 doc_types = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
                                   if c.field_name == "document_type" and c.operator == "in"), None)
                 if amount is not None: query_kwargs["amount_threshold"] = amount
+                if discount is not None: query_kwargs["unit_discount_threshold"] = discount
+                if unit_price is not None: query_kwargs["unit_price_threshold"] = unit_price
+                if seasons: query_kwargs["seasons"] = {x.strip() for x in seasons if x.strip()}
+                if shipment_groups: query_kwargs["shipment_groups"] = {x.strip() for x in shipment_groups if x.strip()}
+                query_kwargs["return_whole_order"] = bool(getattr(runtime_controls, "return_whole_order", True))
+                pushed_fields = {"total_amount", "discount", "actual_discount", "unit_price", "season", "shipment_group", "store_name", "document_type"}
+                local_rule_groups = [replace(group, conditions=[c for c in conditions if c.field_name not in pushed_fields])]
                 if stores: query_kwargs["store_names"] = {x.strip() for x in stores if x.strip()}
                 if doc_types: query_kwargs["document_types"] = {x.strip() for x in doc_types if x.strip()}
         try:
             orders = data_source.load_orders(**query_kwargs)
+            LOGGER.info("loaded %d orders; dates=%s", len(orders), sorted({order.sold_at.date().isoformat() for order in orders}))
         except TypeError:
             # Backwards compatibility for legacy CSV/API data sources.
             orders = data_source.load_orders()
@@ -98,9 +115,9 @@ def run_once(
             continue
         seen_order_nos.add(order.order_no)
 
-        if database_rule_groups is not None:
+        if local_rule_groups is not None:
             matched_group = next(
-                (group for group in database_rule_groups if evaluate_rule_group(order, group, default_start_date=service_started_at.date())),
+                (group for group in local_rule_groups if evaluate_rule_group(order, group, default_start_date=service_started_at.date())),
                 None,
             )
             if matched_group is None:
@@ -123,7 +140,8 @@ def run_once(
     for index, (order, filter_result) in enumerate(pending_orders):
         image_urls = {}
         for item in order.items:
-            url = image_provider.get_url(item.barcode)
+            # Prefer EMS URLs; 127.0.0.1 image URLs cannot be fetched by WeCom.
+            url = item.image_url or image_provider.get_url(item.barcode)
             if not url:
                 url = image_provider.get_url(item.style_no)
             if url:

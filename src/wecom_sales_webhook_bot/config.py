@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +47,7 @@ class RuntimeConfig:
     push_interval_seconds: int
     state_file: Optional[Path]
     dry_run: bool
+    return_whole_order: bool
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,7 @@ def load_config(path: Path) -> AppConfig:
         push_interval_seconds=int(rt.get("push_interval_seconds", 10)),
         state_file=state_file,
         dry_run=bool(rt.get("dry_run", False)),
+        return_whole_order=bool(rt.get("return_whole_order", True)),
     )
 
     backend_section = raw.get("backend")

@@ -33,3 +33,8 @@ ems_config.json
 *.pcapng
 ems_sale_detail_response.bin
 datasource.server.yaml
+
+captures/
+*.xlsx
+*.xls
+*.bin

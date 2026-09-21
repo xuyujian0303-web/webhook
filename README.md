@@ -183,3 +183,11 @@ run-once     扫描一轮
 serve-images 启动本地图片服务（SQL Server 已返回内网图片 URL 时不需要）
 clear-state  清空去重状态（执行前必须人工确认）
 ```
+
+## 当前交接状态（2026-09-21）
+
+本项目当前推荐使用 Windows 桌面 GUI。EMS 日期范围协议已基于真实抓包修正：查询从参数 3 指定的起始日期开始，服务器返回至当前日期；`0x2712` 是固定协议基准，不是用户选择的起始日期。使用 `2026-09-19` 做只读验证时，服务器返回结果包含 `2026-09-19`、`2026-09-20` 和 `2026-09-21`。
+
+当前已实现 EMS 登录、销售详单解码、销售机构/业绩机构拆分、AND/OR 规则、多 Webhook、推送去重、整单返回和 EMS 图片 URL 的 Markdown 图片推送。继续开发前请阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/project-handoff-zh.md`](docs/project-handoff-zh.md)。
+
+真实账号、密码、Webhook、抓包、销售导出文件和运行状态不应提交到 Git；请使用 `config.example.yaml` 与 `ems_config.example.json` 作为模板。
