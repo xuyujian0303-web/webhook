@@ -72,6 +72,7 @@ def _page_context(*, active_nav: str, page_title: str, **extra: object) -> dict[
         {"endpoint": "rule_new_page", "label": "新建规则", "key": "rule_new"},
         {"endpoint": "format_settings_page", "label": "消息模板", "key": "format_settings"},
         {"endpoint": "runtime_settings_page", "label": "\u8fd0\u884c\u914d\u7f6e", "key": "runtime_settings"},
+        {"endpoint": "manual_test_page", "label": "手动测试", "key": "manual_test"},
         {"endpoint": "records_page", "label": "推送记录", "key": "records"},
         {"endpoint": "status_page", "label": "系统状态", "key": "status"},
     ]
@@ -109,7 +110,7 @@ def _summarize_conditions(conditions: list[RuleCondition]) -> list[str]:
     summary: list[str] = []
     for condition in conditions:
         if condition.field_name == "total_amount" and condition.operator == "gte":
-            summary.append(f"金额大于 {condition.value_json}")
+            summary.append(f"金额不低于 {condition.value_json}")
         elif condition.field_name == "style_no" and condition.operator == "in":
             summary.append(f"\u6b3e\u53f7: {', '.join(_split_csv_text(condition.value_json))}")
         elif condition.field_name == "store_name" and condition.operator == "in":
@@ -141,6 +142,10 @@ def _validate_rule_form(form) -> list[str]:
             errors.append("结束日期不能早于开始日期")
     except ValueError:
         errors.append("订单日期必须使用 YYYY-MM-DD 格式")
+    time_start = form.get("time_start", "").strip()
+    time_end = form.get("time_end", "").strip()
+    if bool(time_start) != bool(time_end):
+        errors.append("时间段必须同时填写开始和结束时间")
     return errors
 
 
@@ -151,10 +156,10 @@ def _manual_test_defaults() -> dict[str, str]:
         "field_order_no": "销售单号",
         "field_sold_at": "销售日期",
         "field_store_name": "销售门店",
-        "field_total_amount": "销售单总金额",
+        "field_total_amount": "销售单总额",
         "field_barcode": "商品条码",
-        "field_style_no": "商品款号",
-        "field_unit_price": "商品单价",
+        "field_style_no": "产品款号",
+        "field_unit_price": "产品单价",
         "image_dir": "",
         "image_base_url": "http://127.0.0.1:8123",
         "amount_threshold": "1000",
@@ -557,6 +562,10 @@ def create_app(config: dict) -> Flask:
             add_condition("style_no", "in", request.form["style_list"])
             add_condition("store_name", "in", request.form["store_list"])
             add_condition("performance_org", "in", request.form.get("performance_org_list", ""))
+            time_start = request.form.get("time_start", "").strip()
+            time_end = request.form.get("time_end", "").strip()
+            if time_start and time_end:
+                add_condition("sold_at", "between_time", f"{time_start},{time_end}")
             add_condition(
                 "sold_at",
                 "date_range",

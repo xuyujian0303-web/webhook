@@ -6,14 +6,19 @@ from datetime import datetime
 from wecom_sales_webhook_bot.csv_source import _parse_sold_at
 from wecom_sales_webhook_bot.datasource_config import SqlServerDataSourceConfig
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
+from wecom_sales_webhook_bot.sales_fields import FIELD_KEYS
 
 
 LOGGER = logging.getLogger(__name__)
 _ORDER_TEXT_FIELDS = (
+    "performance_org",
     "salesperson",
     "customer_source",
     "promotion_material",
     "card_type",
+    "document_type",
+    "customer_type",
+    "activity_type",
 )
 
 
@@ -89,6 +94,11 @@ class SqlServerSalesDataSource:
                     brand=optional_text(row, "brand"),
                     category=optional_text(row, "category"),
                     image_url=optional_text(row, "image_url"),
+                    attributes={
+                        key: optional_text(row, key)
+                        for key in FIELD_KEYS
+                        if key in mapping and key not in {"barcode", "style_no", "unit_price", "brand", "category"}
+                    },
                 )
                 if order_no not in grouped:
                     grouped[order_no] = {
@@ -98,6 +108,11 @@ class SqlServerSalesDataSource:
                         "total_amount": float(required["total_amount"]),
                         **order_fields,
                         "total_quantity": quantity_value,
+                        "attributes": {
+                            key: optional_text(row, key)
+                            for key in FIELD_KEYS
+                            if key in mapping and key not in {"order_no", "sold_at", "store_name", "performance_org", "salesperson", "document_type", "customer_type", "activity_type", "total_amount", "total_quantity", "barcode", "style_no", "unit_price", "brand", "category"}
+                        },
                         "items": [],
                     }
                 else:

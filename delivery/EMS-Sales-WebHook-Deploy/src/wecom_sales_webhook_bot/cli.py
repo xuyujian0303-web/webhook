@@ -1,8 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import json
+import msvcrt
 import time
+import yaml
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +25,7 @@ from wecom_sales_webhook_bot.runtime_settings import (
 from wecom_sales_webhook_bot.sqlserver_source import SqlServerSalesDataSource
 from wecom_sales_webhook_bot.ems_source import EmsSalesDataSource
 from wecom_sales_webhook_bot.state_store import PushStateStore
-from wecom_sales_webhook_bot.wecom_client import WeComWebhookClient
+from wecom_sales_webhook_bot.wecom_client import MultiWeComWebhookClient, WeComWebhookClient
 from wecom_sales_webhook_bot.web_app import create_app
 
 
@@ -42,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server"):
+    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server", "desktop-gui"):
         command = subparsers.add_parser(name)
         command.add_argument("--config", required=True)
 
@@ -103,6 +105,13 @@ def serve_web_app(app, host: str, port: int) -> None:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    if args.command == "desktop-gui":
+        from wecom_sales_webhook_bot.desktop_gui import DesktopApp
+        import tkinter as tk
+        root = tk.Tk()
+        DesktopApp(root, Path(args.config).resolve())
+        root.mainloop()
+        return
     config = load_config(Path(args.config))
 
     if args.command == "run-server":
@@ -120,6 +129,7 @@ def main() -> None:
                     scan_interval_seconds=config.runtime.scan_interval_seconds,
                     max_images_per_message=config.runtime.max_images_per_message,
                     push_interval_seconds=config.runtime.push_interval_seconds,
+                    return_whole_order=config.runtime.return_whole_order,
                     show_chinese_org_names=False,
                 ),
                 "PROJECT_ROOT": Path.cwd(),
@@ -159,6 +169,7 @@ def main() -> None:
         scan_interval_seconds=config.runtime.scan_interval_seconds,
         max_images_per_message=config.runtime.max_images_per_message,
         push_interval_seconds=config.runtime.push_interval_seconds,
+                    return_whole_order=config.runtime.return_whole_order,
     )
     if config.backend is not None:
         runtime_controls = load_runtime_controls(
@@ -183,13 +194,20 @@ def main() -> None:
         base_url=f"http://{config.image_service.host}:{config.image_service.port}",
         image_map_csv=image_map_csv,
     )
-    webhook_client = WeComWebhookClient(
-        webhook_url=config.wecom.webhook_url,
-        timeout_seconds=config.wecom.timeout_seconds,
-        retry_times=config.wecom.retry_times,
-    )
+    webhook_client = MultiWeComWebhookClient([
+        WeComWebhookClient(webhook_url=url, timeout_seconds=config.wecom.timeout_seconds, retry_times=config.wecom.retry_times)
+        for url in config.wecom.webhook_urls
+    ])
 
     service_started_at = datetime.now()
+    if args.command == "schedule":
+        raw_runtime = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("runtime", {})
+        rescan_value = str(raw_runtime.get("rescan_start_date", "")).strip()
+        if rescan_value:
+            try:
+                service_started_at = datetime.strptime(rescan_value, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("runtime.rescan_start_date must use YYYY-MM-DD")
 
     if args.command == "run-once":
         run_once(
@@ -211,6 +229,30 @@ def main() -> None:
         return
 
     if args.command == "schedule":
+        lock_path = Path(config.runtime.state_file).with_name("schedule.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_handle = lock_path.open("a+", encoding="ascii")
+        try:
+            if lock_handle.tell() == 0:
+                lock_handle.write("0")
+                lock_handle.flush()
+            lock_handle.seek(0)
+            msvcrt.locking(lock_handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except (OSError, IOError):
+            lock_handle.close()
+            print(f"已有扫描进程正在运行，未启动第二个实例: {lock_path}")
+            return
+
+        def release_schedule_lock() -> None:
+            try:
+                lock_handle.seek(0)
+                msvcrt.locking(lock_handle.fileno(), msvcrt.LK_UNLCK, 1)
+            except (OSError, IOError):
+                pass
+            lock_handle.close()
+
+        import atexit
+        atexit.register(release_schedule_lock)
         while True:
             if config.backend is not None:
                 database_rule_groups, active_template_body = load_runtime_settings(

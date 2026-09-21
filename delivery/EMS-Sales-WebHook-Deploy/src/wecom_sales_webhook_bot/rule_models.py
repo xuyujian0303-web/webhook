@@ -40,6 +40,7 @@ class RuleCondition(Base):
     rule_group_id: Mapped[int] = mapped_column(Integer, nullable=False)
     field_name: Mapped[str] = mapped_column(String(64), nullable=False)
     operator: Mapped[str] = mapped_column(String(16), nullable=False)
+    condition_group: Mapped[str] = mapped_column(String(16), default="all", nullable=False)
     value_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 

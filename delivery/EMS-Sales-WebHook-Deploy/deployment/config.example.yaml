@@ -3,7 +3,8 @@ data_source:
   config_path: ./ems_config.json
 
 wecom:
-  webhook_url: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=请填写真实Key"
+  webhook_urls:
+    - "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_WEBHOOK_KEY"
   timeout_seconds: 10
   retry_times: 2
 

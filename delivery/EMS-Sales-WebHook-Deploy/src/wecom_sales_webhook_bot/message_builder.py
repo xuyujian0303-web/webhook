@@ -146,6 +146,10 @@ def _build_legacy_message(
         summary_lines.append(
             f"> **{_field_label(settings, 'store_name')}**：`{order.store_name}`"
         )
+    if _field_enabled(settings, "performance_org"):
+        summary_lines.append(
+            f"> **{_field_label(settings, 'performance_org')}**：`{order.performance_org or ''}`"
+        )
     if _field_enabled(settings, "sold_at"):
         summary_lines.append(
             f"> **{_field_label(settings, 'sold_at')}**：`{order.sold_at:%Y-%m-%d %H:%M:%S}`"
@@ -254,6 +258,10 @@ def build_markdown_v2_message(
                 },
             },
         )
+        normalized = rendered.text.replace("> 图片：![", "![").replace("> 图片:![", "![")
+        if len(normalized.encode("utf-8")) <= max_bytes:
+            return normalized
+        return _trim_lines_to_max_bytes(normalized.splitlines(), max_bytes)
         if rendered.byte_length <= max_bytes:
             return rendered.text
         return _trim_lines_to_max_bytes(rendered.text.splitlines(), max_bytes)

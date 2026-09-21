@@ -2,6 +2,24 @@
 
 这是一个 Python 项目：从 EMS 只读 TCP 服务（也兼容 SQL Server 和 CSV）读取销售订单，按后台规则筛选，使用可编辑的 Jinja 模板生成企业微信 `markdown_v2` 消息，并通过 Webhook 推送。
 
+## 本机桌面版（推荐）
+
+不再需要浏览器。复制本地配置后运行：
+
+```powershell
+cd C:\Users\redstone\webhook
+$env:PYTHONPATH = "src"
+python -m wecom_sales_webhook_bot.cli desktop-gui --config config.local.yaml
+```
+
+也可运行 `deployment\START_DESKTOP_GUI.ps1`。桌面窗口可保存运行参数、启动/停止扫描、维护多个 Webhook 地址和编辑规则。
+
+## 灵活规则与多 Webhook
+
+- 每条规则同时使用两个条件组：**全部满足（AND）**的每项都必须命中；填写了**任一满足（OR）**时至少命中其中一项；两个条件组之间仍是 AND。
+- 桌面规则编辑器可选择 EMS 销售详单的所有字段，包括销售机构、业绩机构、金额、产品、顾客、卡、活动和创建时间等。销售机构与业绩机构是两个独立字段。
+- `wecom.webhook_urls` 支持多个企业微信群机器人地址。每条消息会发送到全部地址；任一地址失败时订单不会标记为已推送，下一轮会补发。
+
 ## 功能
 
 - EMS 只读 TCP 销售数据源，支持定时扫描、订单去重和企业微信推送
@@ -165,3 +183,11 @@ run-once     扫描一轮
 serve-images 启动本地图片服务（SQL Server 已返回内网图片 URL 时不需要）
 clear-state  清空去重状态（执行前必须人工确认）
 ```
+
+## 当前交接状态（2026-09-21）
+
+本项目当前推荐使用 Windows 桌面 GUI。EMS 日期范围协议已基于真实抓包修正：查询从参数 3 指定的起始日期开始，服务器返回至当前日期；`0x2712` 是固定协议基准，不是用户选择的起始日期。使用 `2026-09-19` 做只读验证时，服务器返回结果包含 `2026-09-19`、`2026-09-20` 和 `2026-09-21`。
+
+当前已实现 EMS 登录、销售详单解码、销售机构/业绩机构拆分、AND/OR 规则、多 Webhook、推送去重、整单返回和 EMS 图片 URL 的 Markdown 图片推送。继续开发前请阅读 [`AGENTS.md`](AGENTS.md) 和 [`docs/project-handoff-zh.md`](docs/project-handoff-zh.md)。
+
+真实账号、密码、Webhook、抓包、销售导出文件和运行状态不应提交到 Git；请使用 `config.example.yaml` 与 `ems_config.example.json` 作为模板。

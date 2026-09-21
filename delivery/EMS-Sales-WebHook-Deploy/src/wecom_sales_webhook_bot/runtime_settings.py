@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
@@ -20,6 +20,7 @@ class RuntimeControls:
     push_window_start: str = "10:00"
     push_window_end: str = "22:00"
     show_chinese_org_names: bool = False
+    return_whole_order: bool = True
 
 
 DEFAULT_RUNTIME_CONTROLS = RuntimeControls(
@@ -46,9 +47,9 @@ def is_within_push_window(now: datetime, controls: RuntimeControls) -> bool:
 
 
 def _parse_condition_value(condition: RuleCondition):
-    if condition.field_name == "total_amount" and condition.operator == "gte":
+    if condition.field_name in {"total_amount", "unit_price", "discount", "actual_discount"} and condition.operator in {"equals", "gt", "gte", "lt", "lte"}:
         return float(condition.value_json)
-    if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range"}:
+    if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range", "date_between"}:
         start_value, end_value = condition.value_json.split(",", maxsplit=1)
         return [start_value.strip(), end_value.strip()]
     return [item.strip() for item in condition.value_json.split(",") if item.strip()]
@@ -62,6 +63,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
     push_window_start = str(payload.get("push_window_start", defaults.push_window_start))
     push_window_end = str(payload.get("push_window_end", defaults.push_window_end))
     show_chinese_org_names = bool(payload.get("show_chinese_org_names", defaults.show_chinese_org_names))
+    return_whole_order = bool(payload.get("return_whole_order", defaults.return_whole_order))
     if scan_interval_seconds <= 0:
         raise ValueError("scan_interval_seconds must be > 0")
     if max_images_per_message <= 0:
@@ -77,6 +79,7 @@ def _normalize_runtime_controls(raw: dict | None, defaults: RuntimeControls) -> 
         push_window_start=push_window_start,
         push_window_end=push_window_end,
         show_chinese_org_names=show_chinese_org_names,
+        return_whole_order=return_whole_order,
     )
 
 
@@ -128,7 +131,8 @@ def load_runtime_settings(database_url: str) -> tuple[list[RuleGroupDTO], str | 
         groups = session.query(RuleGroup).filter_by(is_enabled=True).order_by(RuleGroup.updated_at.desc(), RuleGroup.id.desc()).all()
         conditions = session.query(RuleCondition).all()
         template = load_or_initialize_message_template(session)
+        group_modes = {group.id: group.match_mode for group in groups}
         condition_map: dict[int, list[RuleConditionDTO]] = {}
         for condition in conditions:
-            condition_map.setdefault(condition.rule_group_id, []).append(RuleConditionDTO(field_name=condition.field_name, operator=condition.operator, value=_parse_condition_value(condition)))
+            condition_map.setdefault(condition.rule_group_id, []).append(RuleConditionDTO(field_name=condition.field_name, operator=condition.operator, value=_parse_condition_value(condition), condition_group=getattr(condition, "condition_group", "") or group_modes.get(condition.rule_group_id, "all")))
         return [RuleGroupDTO(name=group.name, match_mode=group.match_mode, conditions=condition_map.get(group.id, [])) for group in groups], template["template_body"]

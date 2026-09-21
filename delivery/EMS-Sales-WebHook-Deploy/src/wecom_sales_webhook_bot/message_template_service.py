@@ -182,7 +182,7 @@ def delete_message_template(session, template_id: str) -> dict:
 
 
 def build_preview_template_context() -> dict:
-    return {
+    context = {
         "order": {
             "order_no": "SOG609260605001",
             "store_name": "G609",
@@ -219,3 +219,11 @@ def build_preview_template_context() -> dict:
             ],
         }
     }
+    # Kept for configurations created by the early web edition.  The current
+    # template editor does not advertise this legacy token, but rendering a
+    # saved old template must remain deterministic.
+    context["items_markdown"] = "\n".join(
+        f"> {item['style_no']} {item['barcode']} http://127.0.0.1:8123/{item['style_no']}.png"
+        for item in context["order"]["items"]
+    )
+    return context

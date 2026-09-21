@@ -48,3 +48,25 @@ class WeComWebhookClient:
                     time.sleep(1)
         if last_error is not None:
             raise last_error
+
+
+class MultiWeComWebhookClient:
+    """Fan out one message to every configured group webhook.
+
+    A send is successful only when every target acknowledges it.  The caller
+    then keeps the order unmarked when any group failed, avoiding silent gaps.
+    """
+    def __init__(self, clients: list[WeComWebhookClient]) -> None:
+        if not clients:
+            raise ValueError("at least one WeCom webhook URL is required")
+        self._clients = clients
+
+    def send_markdown_v2(self, content: str) -> None:
+        errors: list[str] = []
+        for index, client in enumerate(self._clients, 1):
+            try:
+                client.send_markdown_v2(content)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"webhook #{index}: {exc}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
