@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
+from wecom_sales_webhook_bot.ems_decoder import infer_document_type
 from wecom_sales_webhook_bot.rule_service import (
     RuleConditionDTO,
     RuleGroupDTO,
@@ -181,3 +182,21 @@ def test_document_type_accepts_ems_codes_and_chinese_labels() -> None:
     )
     assert evaluate_rule_group(sale, rule)
     assert evaluate_rule_group(preorder, rule)
+
+
+def test_negative_ems_amount_is_return_and_cannot_match_sale_preorder_rule() -> None:
+    assert infer_document_type(-12600) == "return"
+    assert infer_document_type(12600) == "sale"
+
+    returned = SalesOrder(
+        order_no="SO-RETURN",
+        sold_at=datetime(2026, 8, 24, 10, 30),
+        store_name="G899",
+        total_amount=-12600,
+        document_type=infer_document_type(-12600),
+    )
+    rule = RuleGroupDTO(
+        "销售和预购",
+        conditions=[RuleConditionDTO("document_type", "in", "0,3")],
+    )
+    assert not evaluate_rule_group(returned, rule)

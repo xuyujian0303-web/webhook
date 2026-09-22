@@ -12,6 +12,27 @@ class EmsDecodeError(ValueError):
     pass
 
 
+def infer_document_type(total_amount: float, raw_type: object = None) -> str:
+    """Return the normalized EMS document type.
+
+    The current sale-detail response does not expose a stable readable type
+    field in every captured response. A negative whole-order amount is the
+    reliable signature of a return document, so it must never inherit the
+    ``SalesOrder`` default of ``sale``. A future wire-level type value can be
+    supplied through ``raw_type`` without changing callers.
+    """
+    text = str(raw_type or "").strip().casefold()
+    aliases = {
+        "0": "sale", "sale": "sale", "销售": "sale",
+        "1": "return", "return": "return", "退货": "return",
+        "2": "exchange", "exchange": "exchange", "换货": "exchange",
+        "3": "preorder", "preorder": "preorder", "预购": "preorder",
+    }
+    if text in aliases:
+        return aliases[text]
+    return "return" if total_amount < 0 else "sale"
+
+
 def _is_order_number(value: object) -> bool:
     text = str(value).strip()
     return text.startswith(("XSG", "SOG"))
@@ -193,6 +214,9 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
             total_amount = raw_amount / 1000
         else:
             total_amount = 0.0
+        # Return records are encoded with a negative whole-order amount. Do
+        # not let the SalesOrder default ("sale") make them pass a 0,3 rule.
+        document_type = infer_document_type(total_amount)
         items: list[SalesLineItem] = []
         for item_pos, index in enumerate(product_indexes):
             next_index = product_indexes[item_pos + 1] if item_pos + 1 < len(product_indexes) else len(string_entries)
@@ -256,6 +280,7 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
         orders.append(SalesOrder(order_no=order_no, sold_at=sold_at,
                                  store_name=store_name, performance_org=performance_org,
                                  total_amount=total_amount,
+                                 document_type=document_type,
                                  salesperson=salesperson,
                                  customer_source=customer_type,
                                  activity_type=utf8_texts[1] if len(utf8_texts) > 1 else None,
@@ -328,6 +353,10 @@ def decode_sale_detail(payload: bytes) -> list[SalesOrder]:
                 "sold_at": datetime.fromisoformat(str(row["sold_at"])),
                 "store_name": str(row.get("store_name", row.get("organization", ""))),
                 "total_amount": float(row.get("total_amount", row.get("actual_amount", 0))),
+                "document_type": infer_document_type(
+                    float(row.get("total_amount", row.get("actual_amount", 0))),
+                    row.get("document_type", row.get("document_type_code")),
+                ),
                 "items": [],
             })["items"].append(SalesLineItem(
                 barcode=str(row.get("barcode", "")), style_no=str(row.get("style_no", row.get("product_code", ""))),

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from .ems_client import EmsTcpClient
 from .ems_decoder import decode_sale_detail_orders
+from .rule_service import normalize_document_type
 from .sales_fields import order_field_values
 
 
@@ -58,6 +59,14 @@ class EmsSalesDataSource:
             orders = [order for order in orders
                       if (amount_threshold is None or order.total_amount > amount_threshold)
                       and (not store_names or order.store_name in store_names)]
+        if document_types:
+            wanted_types = {
+                normalize_document_type(value)
+                for value in document_types
+                if str(value).strip()
+            }
+            orders = [order for order in orders
+                      if normalize_document_type(order.document_type) in wanted_types]
         if style_numbers:
             wanted = {str(value).strip().upper() for value in style_numbers if str(value).strip()}
             orders = [order for order in orders if any(
