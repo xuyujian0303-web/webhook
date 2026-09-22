@@ -38,3 +38,6 @@ captures/
 *.xlsx
 *.xls
 *.bin
+
+.venv/
+setup.log
