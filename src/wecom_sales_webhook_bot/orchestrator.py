@@ -7,7 +7,7 @@ from datetime import datetime
 
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
-from wecom_sales_webhook_bot.rule_service import evaluate_rule_group
+from wecom_sales_webhook_bot.rule_service import evaluate_rule_group, normalize_document_type
 from wecom_sales_webhook_bot.runtime_settings import RuntimeControls, is_within_push_window, load_runtime_settings
 from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
 from wecom_sales_webhook_bot.rule_models import JobRun, PushRecord
@@ -15,18 +15,6 @@ from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
 LOGGER = logging.getLogger(__name__)
-DOCUMENT_TYPE_ALIASES = {
-    "0": "sale",
-    "1": "return",
-    "2": "exchange",
-    "3": "preorder",
-    "销售": "sale",
-    "退货": "return",
-    "换货": "exchange",
-    "预购": "preorder",
-}
-
-
 def run_once(
     data_source,
     sales_filter,
@@ -96,7 +84,7 @@ def run_once(
                     # requested by a rule.
                     doc_types = {"sale"}
                 doc_types = {
-                    DOCUMENT_TYPE_ALIASES.get(str(item).strip(), str(item).strip().casefold())
+                    normalize_document_type(item)
                     for item in doc_types
                     if str(item).strip()
                 }

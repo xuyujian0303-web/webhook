@@ -30,7 +30,21 @@ class RuleGroupDTO:
 TEXT_OPERATORS = ("equals", "not_equals", "contains", "not_contains", "in", "not_in", "starts_with", "ends_with", "is_empty", "is_not_empty")
 NUMBER_OPERATORS = ("equals", "not_equals", "gt", "gte", "lt", "lte", "between", "is_empty", "is_not_empty")
 DATETIME_OPERATORS = ("equals", "before", "after", "date_between", "between_time", "is_empty", "is_not_empty")
+DOCUMENT_TYPE_ALIASES = {
+    "0": "sale",
+    "1": "return",
+    "2": "exchange",
+    "3": "preorder",
+    "\u9500\u552e": "sale",
+    "\u9000\u8d27": "return",
+    "\u6362\u8d27": "exchange",
+    "\u9884\u8d2d": "preorder",
+}
 
+
+def normalize_document_type(value: object) -> str:
+    text = str(value).strip()
+    return DOCUMENT_TYPE_ALIASES.get(text, text.casefold())
 
 def operators_for_field(field_name: str) -> tuple[str, ...]:
     kind = FIELD_KINDS.get(canonical_field_name(field_name), "text")
@@ -58,6 +72,12 @@ def matches_order_date_range(order: SalesOrder, start_date: date | None, end_dat
 def _match_one(value: str, condition: RuleConditionDTO) -> bool:
     operator = condition.operator
     wanted = _values(condition.value)
+    if condition.field_name == "document_type":
+        value = normalize_document_type(value)
+        wanted = [
+            normalize_document_type(item)
+            for item in wanted
+        ]
     # EMS organization and code values are case-insensitive in practice.
     if condition.field_name not in {"sold_at", "created_at"}:
         value = value.casefold()

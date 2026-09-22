@@ -481,7 +481,9 @@ class DesktopApp:
         except Exception as exc: messagebox.showerror("保存失败", str(exc)); return False
     def _run_cli(self, command: str, keep: bool = False) -> None:
         if not self.save_config(): return
-        args = [sys.executable, "-u", "-m", "wecom_sales_webhook_bot.cli", command, "--config", str(self.config_path)]
+        venv_python = self.config_path.parent / ".venv" / "Scripts" / "python.exe"
+        python_executable = str(venv_python) if venv_python.exists() else sys.executable
+        args = [python_executable, "-u", "-m", "wecom_sales_webhook_bot.cli", command, "--config", str(self.config_path)]
         env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
         if keep:
             if self.schedule_process and self.schedule_process.poll() is None: self.status.set("持续扫描已经在运行。"); return

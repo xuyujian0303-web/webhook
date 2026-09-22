@@ -1,10 +1,11 @@
-﻿from datetime import date, datetime
+from datetime import date, datetime
 
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 from wecom_sales_webhook_bot.rule_service import (
     RuleConditionDTO,
     RuleGroupDTO,
     evaluate_rule_group,
+    normalize_document_type,
     matches_order_date_range,
 )
 
@@ -152,3 +153,31 @@ def test_all_text_and_item_filters_are_evaluated() -> None:
     )
     assert evaluate_rule_group(order, rule)
 
+
+
+def test_document_type_accepts_ems_codes_and_chinese_labels() -> None:
+    assert normalize_document_type("0") == "sale"
+    assert normalize_document_type("销售") == "sale"
+    assert normalize_document_type("3") == "preorder"
+    assert normalize_document_type("预购") == "preorder"
+
+    sale = SalesOrder(
+        order_no="SO-SALE",
+        sold_at=datetime(2026, 8, 24, 10, 30),
+        store_name="G899",
+        total_amount=1000,
+        document_type="sale",
+    )
+    preorder = SalesOrder(
+        order_no="SO-PREORDER",
+        sold_at=datetime(2026, 8, 24, 10, 30),
+        store_name="G899",
+        total_amount=1000,
+        document_type="preorder",
+    )
+    rule = RuleGroupDTO(
+        "销售和预购",
+        conditions=[RuleConditionDTO("document_type", "in", "0,3")],
+    )
+    assert evaluate_rule_group(sale, rule)
+    assert evaluate_rule_group(preorder, rule)
