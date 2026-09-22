@@ -1,4 +1,4 @@
-"""Browser-free local control panel for the sales push bot."""
+﻿"""Browser-free local control panel for the sales push bot."""
 from __future__ import annotations
 
 import argparse
@@ -58,12 +58,28 @@ CONDITION_GROUP_LABEL_TO_KEY = {label: key for key, label in CONDITION_GROUP_LAB
 
 def _field_choice(key: str, label: str) -> str:
     location = "EMS服务器筛选" if key in EMS_SERVER_FIELDS else "下载后本地筛选"
+    if key == "document_type":
+        label = f"{label}（销售/换货/退货/预购；EMS编码 0/2/1/3）"
     return f"{label} [{key}] [{location}]"
 
 FIELD_CHOICES = [_field_choice(key, label) for key, label, _ in selectable_fields()]
 FIELD_FROM_CHOICE = {_field_choice(key, label): key for key, label, _ in selectable_fields()}
 FIELD_CHOICE_BY_KEY = {key: _field_choice(key, label) for key, label, _ in selectable_fields()}
 FIELD_DROPDOWN_WIDTH = max((len(choice) for choice in FIELD_CHOICES), default=52)
+
+LEGACY_DOCUMENT_TYPE_CODES = {"0": "sale", "1": "return", "2": "exchange", "3": "preorder"}
+
+
+def _normalize_legacy_condition(condition: RuleCondition) -> RuleCondition:
+    """Repair conditions saved by the old field-dropdown binding bug."""
+    if condition.field_name != "order_no" or condition.operator not in {"equals", "in"}:
+        return condition
+    values = [item.strip() for item in str(condition.value_json).split(",") if item.strip()]
+    if not values or any(item not in LEGACY_DOCUMENT_TYPE_CODES for item in values):
+        return condition
+    condition.field_name = "document_type"
+    condition.value_json = ",".join(LEGACY_DOCUMENT_TYPE_CODES[item] for item in values)
+    return condition
 
 
 class DesktopApp:
@@ -195,7 +211,10 @@ class DesktopApp:
         try:
             with self._factory() as session:
                 for rule in session.query(RuleGroup).order_by(RuleGroup.updated_at.desc()).all():
-                    conditions = session.query(RuleCondition).filter_by(rule_group_id=rule.id).all()
+                    conditions = [
+                        _normalize_legacy_condition(condition)
+                        for condition in session.query(RuleCondition).filter_by(rule_group_id=rule.id).all()
+                    ]
                     summary = "；".join(f"{'全部' if c.condition_group == 'all' else '任一'}：{FIELD_LABELS.get(c.field_name, c.field_name)} {OPERATOR_LABELS.get(c.operator, c.operator)} {c.value_json}" for c in conditions)
                     self.rule_tree.insert("", "end", iid=str(rule.id), values=(rule.name, "启用" if rule.is_enabled else "停用", summary))
         except Exception as exc: self.status.set(f"规则读取失败：{exc}")
@@ -207,7 +226,12 @@ class DesktopApp:
         if not selected: messagebox.showinfo("请选择规则", "请先选中一条规则。"); return
         with self._factory() as session:
             rule = session.get(RuleGroup, int(selected[0]))
-            if rule: self._rule_dialog(rule, session.query(RuleCondition).filter_by(rule_group_id=rule.id).all())
+            if rule:
+                conditions = [
+                    _normalize_legacy_condition(condition)
+                    for condition in session.query(RuleCondition).filter_by(rule_group_id=rule.id).all()
+                ]
+                self._rule_dialog(rule, conditions)
 
     def _rule_dialog(self, existing: RuleGroup | None = None, conditions: list[RuleCondition] | None = None) -> None:
         dialog = tk.Toplevel(self.root); dialog.title("编辑筛选规则" if existing else "新建筛选规则"); dialog.geometry("1380x620")
@@ -242,6 +266,7 @@ class DesktopApp:
             field_box = ttk.Combobox(
                 line,
                 values=FIELD_CHOICES,
+                textvariable=field_var,
                 width=52,
                 state="readonly",
             )

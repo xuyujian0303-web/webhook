@@ -170,7 +170,7 @@ def main() -> None:
     ])
 
     service_started_at = datetime.now()
-    if args.command == "schedule":
+    if args.command in ("run-once", "schedule"):
         raw_runtime = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("runtime", {})
         rescan_value = str(raw_runtime.get("rescan_start_date", "")).strip()
         if rescan_value:

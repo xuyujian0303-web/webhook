@@ -26,6 +26,8 @@ class EmsSalesDataSource:
                     seasons: set[str] | None = None, shipment_groups: set[str] | None = None,
                     unit_price_threshold: float | None = None, unit_discount_threshold: float | None = None,
                     return_whole_order: bool = True):
+        if document_types is None:
+            document_types = {"sale"}
         start = (start_at or datetime(2023, 9, 20)).strftime("%Y%m%d")
         end = (end_at or datetime.now()).strftime("%Y%m%d")
         self.client.login(self.username, self.password)

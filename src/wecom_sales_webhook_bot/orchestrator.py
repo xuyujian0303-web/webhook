@@ -15,6 +15,16 @@ from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
 LOGGER = logging.getLogger(__name__)
+DOCUMENT_TYPE_ALIASES = {
+    "0": "sale",
+    "1": "return",
+    "2": "exchange",
+    "3": "preorder",
+    "销售": "sale",
+    "退货": "return",
+    "换货": "exchange",
+    "预购": "preorder",
+}
 
 
 def run_once(
@@ -79,7 +89,17 @@ def run_once(
                 stores = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
                                if c.field_name == "store_name" and c.operator == "in"), None)
                 doc_types = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
-                                  if c.field_name == "document_type" and c.operator == "in"), None)
+                                  if c.field_name == "document_type" and c.operator in {"equals", "in"}), None)
+                if doc_types is None:
+                    # EMS document type 0 is a normal sale. Do not include
+                    # returns, exchanges, or preorders unless explicitly
+                    # requested by a rule.
+                    doc_types = {"sale"}
+                doc_types = {
+                    DOCUMENT_TYPE_ALIASES.get(str(item).strip(), str(item).strip().casefold())
+                    for item in doc_types
+                    if str(item).strip()
+                }
                 if amount is not None: query_kwargs["amount_threshold"] = amount
                 if discount is not None: query_kwargs["unit_discount_threshold"] = discount
                 if unit_price is not None: query_kwargs["unit_price_threshold"] = unit_price

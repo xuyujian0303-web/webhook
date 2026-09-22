@@ -58,6 +58,10 @@ def matches_order_date_range(order: SalesOrder, start_date: date | None, end_dat
 def _match_one(value: str, condition: RuleConditionDTO) -> bool:
     operator = condition.operator
     wanted = _values(condition.value)
+    # EMS organization and code values are case-insensitive in practice.
+    if condition.field_name not in {"sold_at", "created_at"}:
+        value = value.casefold()
+        wanted = [item.casefold() for item in wanted]
     if operator == "is_empty": return not value
     if operator == "is_not_empty": return bool(value)
     if operator == "equals": return value == (wanted[0] if wanted else "")
