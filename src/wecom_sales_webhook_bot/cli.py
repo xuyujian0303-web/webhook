@@ -26,7 +26,6 @@ from wecom_sales_webhook_bot.sqlserver_source import SqlServerSalesDataSource
 from wecom_sales_webhook_bot.ems_source import EmsSalesDataSource
 from wecom_sales_webhook_bot.state_store import PushStateStore
 from wecom_sales_webhook_bot.wecom_client import MultiWeComWebhookClient, WeComWebhookClient
-from wecom_sales_webhook_bot.web_app import create_app
 
 
 REQUIRED_CSV_FIELD_MAPPING_KEYS = (
@@ -44,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("run-once", "schedule", "serve-images", "clear-state", "run-server", "desktop-gui"):
+    for name in ("run-once", "schedule", "serve-images", "clear-state", "desktop-gui"):
         command = subparsers.add_parser(name)
         command.add_argument("--config", required=True)
 
@@ -95,13 +94,6 @@ def _build_data_source(config: AppConfig, base_dir: Path):
     return CsvSalesDataSource(config.csv, base_dir=base_dir)
 
 
-def serve_web_app(app, host: str, port: int) -> None:
-    if host == "0.0.0.0":
-        raise ValueError("生产环境请配置服务器内网 IP，不要使用 0.0.0.0")
-    from waitress import serve
-    serve(app, host=host, port=port)
-
-
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -113,35 +105,6 @@ def main() -> None:
         root.mainloop()
         return
     config = load_config(Path(args.config))
-
-    if args.command == "run-server":
-        if config.backend is None:
-            raise ValueError("Command 'run-server' requires config section: backend")
-        app = create_app(
-            {
-                "SECRET_KEY": config.backend.secret_key,
-                "DATABASE_URL": config.backend.database_url,
-                "BOOTSTRAP_ADMIN": {
-                    "username": config.backend.bootstrap_admin_username,
-                    "password": config.backend.bootstrap_admin_password,
-                },
-                "RUNTIME_CONTROL_DEFAULTS": RuntimeControls(
-                    scan_interval_seconds=config.runtime.scan_interval_seconds,
-                    max_images_per_message=config.runtime.max_images_per_message,
-                    push_interval_seconds=config.runtime.push_interval_seconds,
-                    return_whole_order=config.runtime.return_whole_order,
-                    show_chinese_org_names=False,
-                ),
-                "PROJECT_ROOT": Path.cwd(),
-                "CONFIG_PATH": Path(args.config).resolve(),
-                "STATE_FILE": (Path(args.config).resolve().parent / config.runtime.state_file).resolve(),
-                "EMS_CONFIG_PATH": ((Path(args.config).resolve().parent / config.data_source.config_path).resolve()
-                                    if config.data_source and config.data_source.kind == "ems" else None),
-                "STORE_MAPPING": config.store_mapping,
-            }
-        )
-        serve_web_app(app, host=config.backend.host, port=config.backend.port)
-        return
 
     validate_prototype_config(args.command, config)
 

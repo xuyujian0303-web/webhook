@@ -1,6 +1,0 @@
-{% extends "base.html" %}
-{% block body %}
-<section class="panel"><div class="page-header"><h1 class="page-title">系统状态</h1><p class="page-copy">扫描服务负责读取 EMS、去重、匹配规则并按模板推送。</p></div><div class="content">
-<article class="status-card"><div class="action-row"><h2>扫描服务</h2><span class="badge {% if service_running %}ok{% else %}neutral{% endif %}">{{ '运行中' if service_running else '已停止' }}</span></div><div class="action-row" style="margin-top:14px">{% if service_running %}<form method="post" action="/service/stop"><button class="button" type="submit">停止扫描与推送</button></form>{% else %}<form method="post" action="/service/start"><button class="button" type="submit">开始扫描与推送</button></form>{% endif %}</div></article>
-{% if not last_run %}<div class="empty-state"><p>尚未执行扫描任务</p></div>{% else %}<article class="status-card"><div class="action-row"><h2>最近一次扫描</h2><span class="badge">{{ last_run.status_label }}</span></div><div class="status-meta"><span>记录时间：{{ last_run.created_at }}</span><span>窗口开始：{{ last_run.window_start }}</span><span>窗口结束：{{ last_run.window_end }}</span><span>成功 {{ last_run.success_count }}</span><span>失败 {{ last_run.failed_count }}</span></div>{% if last_run.error_summary %}<div class="alert error">{{ last_run.error_summary }}</div>{% endif %}</article>{% endif %}</div></section>
-{% endblock %}
