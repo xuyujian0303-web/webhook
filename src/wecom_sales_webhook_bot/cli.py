@@ -67,8 +67,6 @@ def validate_prototype_config(command: str, config: AppConfig) -> None:
                     for key in REQUIRED_CSV_FIELD_MAPPING_KEYS
                     if key not in config.csv.field_mapping
                 )
-        if config.image_service is None:
-            missing.append("image_service")
         if config.rules is None and config.backend is None:
             missing.append("rules or backend")
         if config.runtime.state_file is None:
@@ -124,7 +122,7 @@ def main() -> None:
     config_path = Path(args.config).resolve()
     base_dir = config_path.parent
     image_map_csv = None
-    if config.image_service.image_map_csv is not None:
+    if config.image_service is not None and config.image_service.image_map_csv is not None:
         image_map_csv = (base_dir / config.image_service.image_map_csv).resolve()
 
     data_source = _build_data_source(config, base_dir=base_dir)
@@ -152,11 +150,20 @@ def main() -> None:
             amount_threshold=config.rules.amount_threshold,
             style_whitelist=config.rules.style_whitelist,
         )
-    image_provider = LocalImageUrlProvider(
-        image_dir=config.image_service.image_dir,
-        base_url=f"http://{config.image_service.host}:{config.image_service.port}",
-        image_map_csv=image_map_csv,
-    )
+    if config.image_service is None:
+        # EMS returns an externally reachable image URL on each line item.
+        # Keep a local fallback provider for records without such a URL, but
+        # do not require a local image server for normal EMS scans.
+        image_provider = LocalImageUrlProvider(
+            image_dir=base_dir / "data" / "images",
+            base_url="http://127.0.0.1:8765",
+        )
+    else:
+        image_provider = LocalImageUrlProvider(
+            image_dir=config.image_service.image_dir,
+            base_url=f"http://{config.image_service.host}:{config.image_service.port}",
+            image_map_csv=image_map_csv,
+        )
     webhook_client = MultiWeComWebhookClient([
         WeComWebhookClient(webhook_url=url, timeout_seconds=config.wecom.timeout_seconds, retry_times=config.wecom.retry_times)
         for url in config.wecom.webhook_urls

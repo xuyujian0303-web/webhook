@@ -11,7 +11,13 @@ class EmsSalesDataSource:
     def __init__(self, config: dict):
         self.username = config["username"]
         self.password = config["password"]
-        self.client = EmsTcpClient(config["auth_host"], int(config["auth_port"]), config["data_host"], int(config["data_port"]), int(config.get("timeout_seconds", 15)))
+        self.client = EmsTcpClient(
+            config.get("auth_host", "giada-erp.redstone.com.cn"),
+            int(config.get("auth_port", 9999)),
+            config.get("data_host", "giada-erp.redstone.com.cn"),
+            int(config.get("data_port", 9100)),
+            int(config.get("timeout_seconds", 15)),
+        )
 
     def load_orders(self, start_at: datetime | None = None, end_at: datetime | None = None,
                     amount_threshold: float | None = None,
