@@ -2,17 +2,18 @@
 
 Windows 桌面 GUI 版本：从 EMS 读取销售详单，按规则筛选订单，使用企业微信 Webhook 推送 Markdown 消息。
 
-## 快速开始
+## 一键安装和启动
 
-1. 安装 Python 3.12 或更高版本。
-2. 在项目目录执行 `python -m pip install -e ".[dev]"`。
-3. 复制 `config.example.yaml` 为 `config.local.yaml`。
-4. 复制 `ems_config.example.json` 为 `ems_config.json`，填写 EMS 账号密码。
-5. 双击 `启动桌面GUI.vbs`。
+Windows 测试人员直接双击根目录的 `一键安装并启动GUI.cmd`。它会自动：
 
-启动脚本会自动设置 `PYTHONPATH=src`，不需要打开终端或 PowerShell。
+1. 检查 Python 3.12；未找到时尝试通过 Windows `winget` 安装。
+2. 安装项目依赖。
+3. 创建缺失的 `config.local.yaml`、`ems_config.json` 和 `var` 目录，不覆盖已有文件。
+4. 在后台启动桌面 GUI。
 
-首次测试请保持 GUI 的“演练模式”开启，确认筛选规则和消息内容后再关闭。Webhook 地址、账号密码和运行状态只保存在本机配置中，不要提交到 GitHub。
+如果电脑没有 `winget`，请先安装 Python 3.12，再重新双击该文件。首次启动后，在 GUI 中填写 EMS 账号和企业微信 Webhook。真实账号、密码、Webhook 和运行状态不会自动生成，也不会覆盖已有配置。
+
+首次测试请保持 GUI 的“演练模式”开启，确认筛选规则和消息内容后再关闭。不要把本机配置提交到 GitHub。
 
 ## GUI 功能
 
@@ -30,7 +31,7 @@ EMS 图片地址使用完整产品编码，例如：
 http://giada-erp.redstone.com.cn/giada/images/GJA14344PIBL0B6_01.jpg
 ```
 
-## 测试
+## 手动测试
 
 ```powershell
 $env:PYTHONPATH = "src"

@@ -2,13 +2,13 @@
 
 ## 启动
 
-1. 安装 Python 3.12 或更高版本。
-2. 在项目目录执行 `python -m pip install -e .`。
-3. 复制 `config.example.yaml` 为 `config.local.yaml`。
-4. 复制 `ems_config.example.json` 为 `ems_config.json`，填写 EMS 账号密码。
-5. 双击根目录的 `启动桌面GUI.vbs`。
+1. 双击根目录的 `一键安装并启动GUI.cmd`。
+2. 脚本会检查 Python 3.12；缺少时尝试使用 Windows `winget` 安装。
+3. 脚本会安装项目依赖，并创建缺失的 `config.local.yaml`、`ems_config.json` 和 `var` 目录。
+4. 首次启动后，在 GUI 中填写 EMS 账号、密码和测试 Webhook。
+5. 首次测试保持“演练模式”开启，确认筛选结果和消息内容后再关闭。
 
-如果项目已安装依赖，也可以直接双击启动脚本；脚本会自动设置 `PYTHONPATH=src`，不需要打开终端。
+如果电脑没有 `winget`，请先安装 Python 3.12，再重新双击启动脚本。脚本不会覆盖已有配置。
 
 ## 测试范围
 
