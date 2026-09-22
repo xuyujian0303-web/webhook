@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlparse
 
 from wecom_sales_webhook_bot.format_settings import normalize_format_settings
 from wecom_sales_webhook_bot.filters import FilterResult
@@ -89,6 +90,15 @@ def _displayed_barcodes(
 def _image_markdown(style_no: str, url: str) -> str:
     suffix = Path(url.split("?", 1)[0]).suffix or ".jpg"
     return f"![{style_no}{suffix}]({url})"
+
+
+def is_webhook_image_url(url: str) -> bool:
+    """Check the minimum URL shape required for a remote WeCom image."""
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def _build_items_markdown(

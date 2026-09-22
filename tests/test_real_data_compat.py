@@ -6,6 +6,14 @@ from wecom_sales_webhook_bot.csv_source import CsvSalesDataSource
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 from wecom_sales_webhook_bot.orchestrator import run_once
+from wecom_sales_webhook_bot.ems_decoder import build_ems_image_url
+
+
+def test_ems_image_url_uses_full_product_code() -> None:
+    assert (
+        build_ems_image_url("GJA14344PIBL0B6")
+        == "http://giada-erp.redstone.com.cn/giada/images/GJA14344PIBL0B6_01.jpg"
+    )
 
 
 def test_csv_source_parses_slash_date_with_am_pm(tmp_path: Path) -> None:

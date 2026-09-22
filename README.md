@@ -12,7 +12,7 @@ $env:PYTHONPATH = "src"
 python -m wecom_sales_webhook_bot.cli desktop-gui --config config.local.yaml
 ```
 
-也可运行 `deployment\START_DESKTOP_GUI.ps1`。桌面窗口可保存运行参数、启动/停止扫描、维护多个 Webhook 地址和编辑规则。
+Windows 测试人员可直接双击仓库根目录中的 `启动桌面GUI.vbs`，无需打开终端或 PowerShell。首次使用时，程序会使用 `config.local.yaml` 和本地 `ems_config.json`；如果文件不存在，请先复制对应的示例文件并在 GUI 中填写配置。桌面窗口可保存运行参数、启动/停止扫描、维护多个 Webhook 地址和编辑规则。
 
 ## 灵活规则与多 Webhook
 

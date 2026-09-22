@@ -77,3 +77,78 @@ def test_date_range_is_a_required_gate_even_for_any_match_mode() -> None:
     assert matches_order_date_range(order, date(2026, 8, 24), None) is False
     assert evaluate_rule_group(rule_group=rule, order=order) is False
 
+
+def test_numeric_rule_operators_cover_boundaries_and_invalid_values() -> None:
+    order = SalesOrder(
+        order_no="SO-number",
+        sold_at=datetime(2026, 8, 24, 10, 0),
+        store_name="G621",
+        total_amount=1000,
+        items=[SalesLineItem(barcode="b1", style_no="A1", unit_price=100)],
+    )
+    for operator in ("equals", "gte", "lte"):
+        assert evaluate_rule_group(
+            order,
+            RuleGroupDTO("match", conditions=[RuleConditionDTO("total_amount", operator, "1000")]),
+        )
+    for operator in ("gt", "lt"):
+        assert not evaluate_rule_group(
+            order,
+            RuleGroupDTO("no-match", conditions=[RuleConditionDTO("total_amount", operator, "1000")]),
+        )
+    assert evaluate_rule_group(
+        order,
+        RuleGroupDTO(
+            "between",
+            conditions=[RuleConditionDTO("total_amount", "between", "1000,2000")],
+        ),
+    )
+    assert not evaluate_rule_group(
+        order,
+        RuleGroupDTO(
+            "invalid",
+            conditions=[RuleConditionDTO("total_amount", "gte", "not-a-number")],
+        ),
+    )
+
+
+def test_all_text_and_item_filters_are_evaluated() -> None:
+    order = SalesOrder(
+        order_no="SO-ABC-001",
+        sold_at=datetime(2026, 8, 24, 10, 30),
+        store_name="G621",
+        performance_org="G889",
+        total_amount=1000,
+        salesperson="张三",
+        document_type="sale",
+        items=[
+            SalesLineItem(
+                barcode="BC-1",
+                style_no="PA1",
+                unit_price=100,
+                quantity=2,
+                brand="Brand-A",
+                category="外套",
+                attributes={"season": "26FW", "shipment_group": "26fwg6"},
+            )
+        ],
+    )
+    conditions = [
+        ("order_no", "starts_with", "SO-"),
+        ("store_name", "in", "G621,G622"),
+        ("performance_org", "equals", "G889"),
+        ("style_no", "contains", "PA"),
+        ("barcode", "ends_with", "-1"),
+        ("brand", "equals", "Brand-A"),
+        ("category", "not_equals", "连衣裙"),
+        ("season", "equals", "26FW"),
+        ("shipment_group", "equals", "26fwg6"),
+        ("sold_at", "date_between", "2026-08-24,2026-08-24"),
+        ("sold_at", "between_time", "10:00,11:00"),
+    ]
+    rule = RuleGroupDTO(
+        "all-fields",
+        conditions=[RuleConditionDTO(field, operator, value) for field, operator, value in conditions],
+    )
+    assert evaluate_rule_group(order, rule)
+

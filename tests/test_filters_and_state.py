@@ -29,3 +29,19 @@ def test_filter_matches_amount_or_style_and_state_blocks_duplicates(
     assert state_store.has_pushed("SO-900") is False
     state_store.mark_pushed("SO-900", sold_at=order.sold_at)
     assert state_store.has_pushed("SO-900") is True
+
+
+def test_amount_filter_requires_strictly_more_than_threshold() -> None:
+    def order(amount: float) -> SalesOrder:
+        return SalesOrder(
+            order_no=f"SO-{amount}",
+            sold_at=datetime(2026, 4, 20, 10, 0),
+            store_name="G621",
+            total_amount=amount,
+            items=[],
+        )
+
+    sales_filter = SalesFilter(amount_threshold=1000, style_whitelist=set())
+    assert sales_filter.evaluate(order(999.99)).matched is False
+    assert sales_filter.evaluate(order(1000)).matched is False
+    assert sales_filter.evaluate(order(1000.01)).matched is True

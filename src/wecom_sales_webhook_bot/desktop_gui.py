@@ -53,14 +53,17 @@ def _operator_choice(operator: str) -> str:
 def _operator_choices(field_name: str) -> list[str]:
     return [_operator_choice(operator) for operator in operators_for_field(field_name)]
 EMS_SERVER_FIELDS = {"store_name", "total_amount", "document_type", "unit_price", "discount", "season", "shipment_group"}
+CONDITION_GROUP_LABELS = {"all": "全部满足", "any": "任一满足"}
+CONDITION_GROUP_LABEL_TO_KEY = {label: key for key, label in CONDITION_GROUP_LABELS.items()}
 
 def _field_choice(key: str, label: str) -> str:
-    location = "EMS server filter" if key in EMS_SERVER_FIELDS else "Local filter after download"
+    location = "EMS服务器筛选" if key in EMS_SERVER_FIELDS else "下载后本地筛选"
     return f"{label} [{key}] [{location}]"
 
 FIELD_CHOICES = [_field_choice(key, label) for key, label, _ in selectable_fields()]
 FIELD_FROM_CHOICE = {_field_choice(key, label): key for key, label, _ in selectable_fields()}
 FIELD_CHOICE_BY_KEY = {key: _field_choice(key, label) for key, label, _ in selectable_fields()}
+FIELD_DROPDOWN_WIDTH = max((len(choice) for choice in FIELD_CHOICES), default=52)
 
 
 class DesktopApp:
@@ -207,33 +210,62 @@ class DesktopApp:
             if rule: self._rule_dialog(rule, session.query(RuleCondition).filter_by(rule_group_id=rule.id).all())
 
     def _rule_dialog(self, existing: RuleGroup | None = None, conditions: list[RuleCondition] | None = None) -> None:
-        dialog = tk.Toplevel(self.root); dialog.title("编辑筛选规则" if existing else "新建筛选规则"); dialog.geometry("1020x560")
+        dialog = tk.Toplevel(self.root); dialog.title("编辑筛选规则" if existing else "新建筛选规则"); dialog.geometry("1380x620")
+        dialog.minsize(1180, 520)
+        dialog.columnconfigure(1, weight=1)
+        dialog.columnconfigure(2, weight=1)
+        dialog.rowconfigure(2, weight=1)
         name, enabled = tk.StringVar(value=existing.name if existing else ""), tk.BooleanVar(value=existing.is_enabled if existing else True)
-        ttk.Label(dialog, text="规则名称").grid(row=0, column=0, padx=8, pady=8, sticky="w"); ttk.Entry(dialog, textvariable=name, width=42).grid(row=0, column=1, sticky="w"); ttk.Checkbutton(dialog, text="启用", variable=enabled).grid(row=0, column=2, sticky="w")
-        for col, title in enumerate(("条件组", "EMS 销售详单字段", "运算符（括号内为输入格式）", "值")): ttk.Label(dialog, text=title).grid(row=1, column=col)
-        frame = ttk.Frame(dialog); frame.grid(row=2, column=0, columnspan=4, sticky="nsew")
+        ttk.Label(dialog, text="规则名称").grid(row=0, column=0, padx=12, pady=8, sticky="w")
+        ttk.Entry(dialog, textvariable=name, width=42).grid(row=0, column=1, sticky="ew", padx=8)
+        ttk.Checkbutton(dialog, text="启用", variable=enabled).grid(row=0, column=2, sticky="w", padx=8)
+        headers = (
+            ("条件组", 0, "w"),
+            ("EMS销售详单字段（括号内为字段类型）", 1, "w"),
+            ("运算符（括号内为输入格式）", 2, "w"),
+            ("值", 3, "w"),
+        )
+        for title, col, anchor in headers:
+            ttk.Label(dialog, text=title).grid(row=1, column=col, padx=8, pady=(8, 4), sticky=anchor)
+        frame = ttk.Frame(dialog)
+        frame.grid(row=2, column=0, columnspan=4, sticky="nsew", padx=4)
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(2, weight=1)
         rows: list[dict] = []
         def add_row(group="all", choice=FIELD_CHOICES[0], operator=None, value=""):
             line = ttk.Frame(frame); line.pack(fill="x", pady=3)
-            group_var, field_var = tk.StringVar(value=group), tk.StringVar(value=choice)
+            group_var = tk.StringVar(value=CONDITION_GROUP_LABELS.get(group, group))
+            field_var = tk.StringVar(value=choice)
             key = FIELD_FROM_CHOICE.get(choice, "order_no")
             operator_var = tk.StringVar(value=_operator_choice(operator or operators_for_field(key)[0]))
-            ttk.Combobox(line, values=("all", "any"), textvariable=group_var, width=10, state="readonly").pack(side="left", padx=4)
-            field_box = ttk.Combobox(line, values=FIELD_CHOICES, textvariable=field_var, width=29, state="readonly"); field_box.pack(side="left", padx=4)
-            op_box = ttk.Combobox(line, values=_operator_choices(key), textvariable=operator_var, width=38, state="readonly"); op_box.pack(side="left", padx=4)
-            entry = ttk.Entry(line, width=45); entry.insert(0, value); entry.pack(side="left", padx=4)
+            ttk.Combobox(line, values=tuple(CONDITION_GROUP_LABELS.values()), textvariable=group_var, width=12, state="readonly").pack(side="left", padx=4)
+            field_box = ttk.Combobox(
+                line,
+                values=FIELD_CHOICES,
+                width=52,
+                state="readonly",
+            )
+            field_box.configure(postcommand=lambda box=field_box: box.configure(width=max(52, FIELD_DROPDOWN_WIDTH)))
+            field_box.pack(side="left", padx=4, fill="x", expand=True)
+            op_box = ttk.Combobox(line, values=_operator_choices(key), textvariable=operator_var, width=42, state="readonly")
+            op_box.pack(side="left", padx=4, fill="x", expand=True)
+            entry = ttk.Entry(line, width=34); entry.insert(0, value); entry.pack(side="left", padx=4, fill="x", expand=True)
             row = {"line": line, "group": group_var, "field": field_var, "operator": operator_var, "entry": entry}
             def update(*_):
-                allowed = operators_for_field(FIELD_FROM_CHOICE.get(field_var.get(), "order_no"))
-                choices = _operator_choices(FIELD_FROM_CHOICE.get(field_var.get(), "order_no"))
+                selected_key = FIELD_FROM_CHOICE.get(field_var.get(), "order_no")
+                allowed = operators_for_field(selected_key)
+                choices = _operator_choices(selected_key)
                 op_box["values"] = choices
                 if OPERATOR_CHOICE_TO_KEY.get(operator_var.get()) not in allowed: operator_var.set(choices[0])
             field_var.trace_add("write", update)
+            update()
             ttk.Button(line, text="删除", command=lambda: (line.destroy(), rows.remove(row))).pack(side="left"); rows.append(row)
         for c in conditions or []:
             label = FIELD_LABELS.get(c.field_name, c.field_name); choice = FIELD_CHOICE_BY_KEY.get(c.field_name, FIELD_CHOICES[0])
             add_row(c.condition_group or "all", choice if choice in FIELD_FROM_CHOICE else FIELD_CHOICES[0], c.operator, c.value_json)
-        if not rows: add_row("all", "销售机构 [store_name]", "in"); add_row("any", "业绩机构 [performance_org]", "in")
+        if not rows:
+            add_row("all", FIELD_CHOICE_BY_KEY["store_name"], "in")
+            add_row("any", FIELD_CHOICE_BY_KEY["performance_org"], "in")
         ttk.Button(dialog, text="增加条件", command=add_row).grid(row=3, column=0, sticky="w", padx=8, pady=12)
         ttk.Label(
             dialog,
@@ -247,7 +279,7 @@ class DesktopApp:
                 op, value = OPERATOR_CHOICE_TO_KEY[row["operator"].get()], row["entry"].get().strip()
                 if op not in {"is_empty", "is_not_empty"} and not value: continue
                 field = FIELD_FROM_CHOICE[row["field"].get()]
-                payloads.append((row["group"].get(), field, op, value))
+                payloads.append((CONDITION_GROUP_LABEL_TO_KEY.get(row["group"].get(), "all"), field, op, value))
             if not payloads: messagebox.showerror("无法保存", "至少填写一条有效条件，避免无条件推送全部销售单。"); return
             try:
                 with self._factory() as session:

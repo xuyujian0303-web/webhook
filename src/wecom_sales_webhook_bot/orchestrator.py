@@ -86,8 +86,11 @@ def run_once(
                 if seasons: query_kwargs["seasons"] = {x.strip() for x in seasons if x.strip()}
                 if shipment_groups: query_kwargs["shipment_groups"] = {x.strip() for x in shipment_groups if x.strip()}
                 query_kwargs["return_whole_order"] = bool(getattr(runtime_controls, "return_whole_order", True))
-                pushed_fields = {"total_amount", "discount", "actual_discount", "unit_price", "season", "shipment_group", "store_name", "document_type"}
-                local_rule_groups = [replace(group, conditions=[c for c in conditions if c.field_name not in pushed_fields])]
+                # Query hints are optional for adapters. Keep the original
+                # conditions for the local check so an adapter that ignores a
+                # hint cannot accidentally turn an unmatched order into a
+                # match.
+                local_rule_groups = [group]
                 if stores: query_kwargs["store_names"] = {x.strip() for x in stores if x.strip()}
                 if doc_types: query_kwargs["document_types"] = {x.strip() for x in doc_types if x.strip()}
         try:

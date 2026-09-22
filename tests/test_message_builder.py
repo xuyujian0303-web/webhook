@@ -4,7 +4,7 @@ import pytest
 
 from wecom_sales_webhook_bot.format_settings import normalize_format_settings
 from wecom_sales_webhook_bot.filters import FilterResult
-from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
+from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message, is_webhook_image_url
 from wecom_sales_webhook_bot.models import SalesLineItem, SalesOrder
 
 
@@ -42,6 +42,24 @@ def test_message_builder_renders_order_details_and_limits_images() -> None:
     assert "- **款号**：`B2002`" in message
     assert "> 图片未展示" in message
     assert "还有 1 张图片未展示" in message
+
+
+def test_image_markdown_has_expected_syntax_and_url_shape() -> None:
+    order = SalesOrder(
+        order_no="SO-image",
+        sold_at=datetime(2026, 4, 20, 10, 0),
+        store_name="G621",
+        total_amount=1,
+        items=[SalesLineItem(barcode="BC", style_no="STYLE", unit_price=1)],
+    )
+    url = "https://images.example.com/products/STYLE.jpg"
+    message = build_markdown_v2_message(
+        order, FilterResult(True, "manual_test"), {"BC": url}, 1
+    )
+    assert "![STYLE.jpg](https://images.example.com/products/STYLE.jpg)" in message
+    assert is_webhook_image_url(url)
+    assert not is_webhook_image_url("C:/images/STYLE.jpg")
+    assert not is_webhook_image_url("file:///C:/images/STYLE.jpg")
 
 
 def test_message_builder_shows_no_image_per_item_when_missing() -> None:

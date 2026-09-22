@@ -22,6 +22,19 @@ def _decode_text(raw: bytes) -> str:
     return raw.decode("gb18030", "replace") if "\ufffd" in value else value
 
 
+def build_ems_image_url(product_code: str) -> str:
+    """Build the EMS image URL from the full product code.
+
+    EMS product codes include the trailing colour/variant segment required by
+    the image service, for example ``GJA14344PIBL0B6_01.jpg``. The shorter
+    style/colour display code is not a valid image filename.
+    """
+    code = str(product_code).strip()
+    if not code:
+        return ""
+    return f"http://giada-erp.redstone.com.cn/giada/images/{code}_01.jpg"
+
+
 def extract_sale_detail_records(payload: bytes) -> list[list[dict[str, object]]]:
     """Split a query response into records using the stable XSG order marker.
 
@@ -209,7 +222,7 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
                 barcode=barcode,
                 style_no=style_no,
                 unit_price=price,
-                image_url=f"http://giada-erp.redstone.com.cn/giada/images/{style_no}_01.jpg",
+                image_url=build_ems_image_url(product_code),
                 attributes={"product_code": product_code, "item_id": product_code},
             ))
         salesperson = next((str(x.get("value")).strip() for x in fields
