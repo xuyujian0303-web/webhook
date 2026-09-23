@@ -186,7 +186,8 @@ def test_document_type_accepts_ems_codes_and_chinese_labels() -> None:
 
 def test_negative_ems_amount_is_return_and_cannot_match_sale_preorder_rule() -> None:
     assert infer_document_type(-12600) == "return"
-    assert infer_document_type(12600) == "sale"
+    assert infer_document_type(12600) == "unknown"
+    assert infer_document_type(12600, "0") == "sale"
 
     returned = SalesOrder(
         order_no="SO-RETURN",

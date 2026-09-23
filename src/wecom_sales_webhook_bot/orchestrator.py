@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+import inspect
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 
 from wecom_sales_webhook_bot.filters import FilterResult
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
@@ -15,6 +16,87 @@ from wecom_sales_webhook_bot.state_store import PushStateStore
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _condition_values(condition) -> list[str]:
+    value = condition.value
+    return [str(item).strip() for item in value] if isinstance(value, list) else [
+        item.strip() for item in str(value).split(",")
+    ]
+
+
+def _numeric_bounds(conditions, field_name: str) -> tuple[float | None, float | None] | None:
+    low = high = None
+    found = False
+    for condition in conditions:
+        if condition.field_name != field_name:
+            continue
+        values = _condition_values(condition)
+        try:
+            if condition.operator == "between" and len(values) == 2:
+                low, high = float(values[0]), float(values[1])
+                found = True
+            elif condition.operator in {"gt", "gte"} and values and values[0]:
+                value = float(values[0])
+                low = value if low is None else max(low, value)
+                found = True
+            elif condition.operator in {"lt", "lte"} and values and values[0]:
+                value = float(values[0])
+                high = value if high is None else min(high, value)
+                found = True
+        except ValueError:
+            continue
+    return (low, high) if found else None
+
+
+def _parse_rule_date(value: str) -> date | None:
+    text = value.strip().replace("/", "-")
+    for pattern in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, pattern).date()
+        except ValueError:
+            pass
+    return None
+
+
+def _rule_date_window(conditions, start_at: datetime, end_at: datetime) -> tuple[datetime, datetime]:
+    start_day, end_day = start_at.date(), end_at.date()
+    for condition in conditions:
+        if condition.field_name != "sold_at":
+            continue
+        values = _condition_values(condition)
+        if condition.operator in {"after", "gt", "gte"} and values:
+            parsed = _parse_rule_date(values[0])
+            if parsed:
+                start_day = max(start_day, parsed)
+        elif condition.operator == "before" and values:
+            parsed = _parse_rule_date(values[0])
+            if parsed:
+                end_day = min(end_day, parsed)
+        elif condition.operator in {"date_between", "date_range", "between"}:
+            bounds = (values + ["", ""])[:2]
+            low = _parse_rule_date(bounds[0]) if bounds[0] else None
+            high = _parse_rule_date(bounds[1]) if bounds[1] else None
+            if low:
+                start_day = max(start_day, low)
+            if high:
+                end_day = min(end_day, high)
+    return (
+        datetime.combine(start_day, datetime.min.time()),
+        datetime.combine(end_day, datetime.max.time()),
+    )
+
+
+def _condition_group(condition, default_mode: str) -> str:
+    return condition.condition_group if condition.condition_group in {"all", "any"} else default_mode
+
+
+def _load_orders(data_source, query_kwargs):
+    parameters = inspect.signature(data_source.load_orders).parameters
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+        return data_source.load_orders(**query_kwargs)
+    supported = {key: value for key, value in query_kwargs.items() if key in parameters}
+    return data_source.load_orders(**supported)
 def run_once(
     data_source,
     sales_filter,
@@ -58,26 +140,24 @@ def run_once(
         scan_end = now_func()
         query_kwargs = {"start_at": scan_start, "end_at": scan_end}
         local_rule_groups = database_rule_groups
-        # A single enabled ALL-rule can safely be pushed down to the EMS
-        # adapter. OR-rules must stay post-query or valid orders could be lost.
+        # Push down only conjunctive predicates. OR predicates remain local.
         if database_rule_groups and len(database_rule_groups) == 1:
             group = database_rule_groups[0]
-            if getattr(group, "match_mode", None) == "all":
-                conditions = getattr(group, "conditions", [])
-                amount = next((float(c.value) for c in conditions
-                               if c.field_name == "total_amount" and c.operator in {"gt", "gte"}), None)
-                discount = next((float(c.value) for c in conditions
-                                 if c.field_name in {"discount", "actual_discount"} and c.operator in {"gt", "gte"}), None)
-                unit_price = next((float(c.value) for c in conditions
-                                   if c.field_name == "unit_price" and c.operator in {"gt", "gte"}), None)
-                seasons = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+            conditions = getattr(group, "conditions", [])
+            if all(_condition_group(c, getattr(group, "match_mode", "all")) == "all" for c in conditions):
+                amount = _numeric_bounds(conditions, "total_amount")
+                unit_price = _numeric_bounds(conditions, "unit_price")
+                discount = _numeric_bounds(conditions, "discount")
+                seasons = next((set(_condition_values(c)) for c in conditions
                                 if c.field_name == "season" and c.operator in {"equals", "in"}), None)
-                shipment_groups = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                shipment_groups = next((set(_condition_values(c)) for c in conditions
                                         if c.field_name == "shipment_group" and c.operator in {"equals", "in"}), None)
-                stores = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
-                               if c.field_name == "store_name" and c.operator == "in"), None)
-                doc_types = next((set(c.value if isinstance(c.value, list) else str(c.value).split(",")) for c in conditions
+                stores = next((set(_condition_values(c)) for c in conditions
+                               if c.field_name == "store_name" and c.operator in {"equals", "in"}), None)
+                doc_types = next((set(_condition_values(c)) for c in conditions
                                   if c.field_name == "document_type" and c.operator in {"equals", "in"}), None)
+                style_numbers = next((set(_condition_values(c)) for c in conditions
+                                      if c.field_name == "style_no" and c.operator in {"equals", "in", "contains"}), None)
                 if doc_types is None:
                     # EMS document type 0 is a normal sale. Do not include
                     # returns, exchanges, or preorders unless explicitly
@@ -88,12 +168,16 @@ def run_once(
                     for item in doc_types
                     if str(item).strip()
                 }
-                if amount is not None: query_kwargs["amount_threshold"] = amount
-                if discount is not None: query_kwargs["unit_discount_threshold"] = discount
-                if unit_price is not None: query_kwargs["unit_price_threshold"] = unit_price
+                if amount is not None: query_kwargs["amount_range"] = amount
+                if discount is not None: query_kwargs["unit_discount_range"] = discount
+                if unit_price is not None: query_kwargs["unit_price_range"] = unit_price
                 if seasons: query_kwargs["seasons"] = {x.strip() for x in seasons if x.strip()}
                 if shipment_groups: query_kwargs["shipment_groups"] = {x.strip() for x in shipment_groups if x.strip()}
+                if style_numbers: query_kwargs["style_numbers"] = {x.strip() for x in style_numbers if x.strip()}
                 query_kwargs["return_whole_order"] = bool(getattr(runtime_controls, "return_whole_order", True))
+                query_kwargs["start_at"], query_kwargs["end_at"] = _rule_date_window(
+                    conditions, query_kwargs["start_at"], query_kwargs["end_at"]
+                )
                 # Query hints are optional for adapters. Keep the original
                 # conditions for the local check so an adapter that ignores a
                 # hint cannot accidentally turn an unmatched order into a
@@ -101,12 +185,8 @@ def run_once(
                 local_rule_groups = [group]
                 if stores: query_kwargs["store_names"] = {x.strip() for x in stores if x.strip()}
                 if doc_types: query_kwargs["document_types"] = {x.strip() for x in doc_types if x.strip()}
-        try:
-            orders = data_source.load_orders(**query_kwargs)
-            LOGGER.info("loaded %d orders; dates=%s", len(orders), sorted({order.sold_at.date().isoformat() for order in orders}))
-        except TypeError:
-            # Backwards compatibility for legacy CSV/API data sources.
-            orders = data_source.load_orders()
+        orders = _load_orders(data_source, query_kwargs)
+        LOGGER.info("loaded %d orders; dates=%s", len(orders), sorted({order.sold_at.date().isoformat() for order in orders}))
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("failed to load sales orders: %s", exc)
         if db_session is not None:
@@ -127,8 +207,12 @@ def run_once(
         seen_order_nos.add(order.order_no)
 
         if local_rule_groups is not None:
+            server_filtered_fields = set(order.attributes.get("_ems_server_filtered_fields", ()))
             matched_group = next(
-                (group for group in local_rule_groups if evaluate_rule_group(order, group, default_start_date=service_started_at.date())),
+                (group for group in local_rule_groups if evaluate_rule_group(
+                    order, group, default_start_date=service_started_at.date(),
+                    server_filtered_fields=server_filtered_fields,
+                )),
                 None,
             )
             if matched_group is None:

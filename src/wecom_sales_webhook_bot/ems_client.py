@@ -12,6 +12,83 @@ def _field_string(index: int, value: str) -> bytes:
     return b"\x0b" + struct.pack(">H", index) + struct.pack(">I", len(raw)) + raw
 
 
+def _format_query_number(value: float) -> str:
+    number = float(value)
+    return str(int(number)) if number.is_integer() else format(number, "g")
+
+
+def _build_captured_filter_frame(
+    start_date: str,
+    end_date: str,
+    store_names: set[str] | None,
+    document_types: set[str] | None,
+    amount_range: tuple[float | None, float | None] | None,
+    unit_price_range: tuple[float | None, float | None] | None,
+    unit_discount_range: tuple[float | None, float | None] | None,
+    seasons: set[str] | None,
+    shipment_groups: set[str] | None,
+    style_numbers: set[str] | None,
+    return_whole_order: bool,
+) -> bytes:
+    type_codes = {
+        "sale": "0", "0": "0", "销售": "0",
+        "return": "1", "1": "1", "退货": "1",
+        "exchange": "2", "2": "2", "换货": "2",
+        "preorder": "3", "3": "3", "预购": "3",
+    }
+    codes = sorted({
+        type_codes[str(value).strip().casefold()]
+        for value in document_types or set()
+        if str(value).strip().casefold() in type_codes
+    })
+    stores = sorted({str(value).strip() for value in store_names or set() if str(value).strip()})
+    if any("'" in store for store in stores):
+        raise ValueError("EMS store filter contains an unsupported quote")
+
+    parameters: list[tuple[int, str]] = [
+        (0x2712, "20230923"),
+        (5, " in ( " + ",".join(f"'{store}'" for store in stores) + " ) " if stores else ""),
+        (6, " in ( " + ",".join(codes) + " ) " if codes else ""),
+        (3, start_date),
+        (4, end_date),
+    ]
+    for bounds, low_index, high_index in (
+        (amount_range, 9, 10),
+        (unit_price_range, 22, 23),
+        (unit_discount_range, 24, 25),
+    ):
+        if bounds is not None:
+            low, high = bounds
+            parameters.extend(
+                (index, _format_query_number(value) if value is not None else "")
+                for index, value in ((low_index, low), (high_index, high))
+            )
+        else:
+            # This 15-entry request layout was captured with all range slots
+            # present. Empty slots preserve the server-validated structure.
+            parameters.extend(((low_index, ""), (high_index, "")))
+    parameters.extend((
+        (20, ",".join(sorted(seasons or set()))),
+        (28, ",".join(sorted(shipment_groups or set()))),
+        (29, "1" if return_whole_order else "0"),
+        (32, ",".join(sorted(style_numbers or set())).casefold()),
+    ))
+
+    entries = bytearray()
+    for position, (index, value) in enumerate(parameters):
+        entries.extend(b"\x08\x00\x01" if position == 0 else b"\x00\x08\x00\x01")
+        entries.extend(struct.pack(">I", index))
+        entries.extend(_field_string(2, value))
+    container = b"\x0f\x00\x01\x0c" + struct.pack(">I", len(parameters)) + entries
+    method = b"querySaleDetailList"
+    body = (
+        b"\x80\x01\x00\x01" + struct.pack(">I", len(method)) + method
+        + struct.pack(">I", 0x172F) + container
+        + b"\x00\x08\x00\x02\x00L\x55\xbf\x08\x00\x03\x00\x00\x00\x01\x00"
+    )
+    return frame(body)
+
+
 def build_login_frame(username: str, password: str) -> bytes:
     digest = hashlib.md5(password.encode("utf-8")).hexdigest().upper().encode("ascii")
     body = (
@@ -27,8 +104,22 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
                             document_types: set[str] | None = None,
                             style_numbers: set[str] | None = None, seasons: set[str] | None = None,
                             shipment_groups: set[str] | None = None, unit_price_threshold: float | None = None,
-                            unit_discount_threshold: float | None = None, return_whole_order: bool = True) -> bytes:
+                            unit_discount_threshold: float | None = None, return_whole_order: bool = True,
+                            amount_range: tuple[float | None, float | None] | None = None,
+                            unit_price_range: tuple[float | None, float | None] | None = None,
+                            unit_discount_range: tuple[float | None, float | None] | None = None) -> bytes:
     """Build the currently verified read-only query shape (YYYYMMDD dates)."""
+    amount_range = amount_range or ((amount_threshold, None) if amount_threshold is not None else None)
+    unit_price_range = unit_price_range or ((unit_price_threshold, None) if unit_price_threshold is not None else None)
+    unit_discount_range = unit_discount_range or ((unit_discount_threshold, None) if unit_discount_threshold is not None else None)
+    if any(value is not None for value in (
+        amount_range, unit_price_range, unit_discount_range,
+    )) or style_numbers is not None or seasons is not None or shipment_groups is not None:
+        return _build_captured_filter_frame(
+            start_date, end_date, store_names, document_types, amount_range,
+            unit_price_range, unit_discount_range, seasons, shipment_groups,
+            style_numbers, return_whole_order,
+        )
     hex_template = (
         "000000748001000100000013717565727953616c6544657461696c4c697374"
         "0000000b0f00010c00000003080001000027120b0002000000083230323330393034"
@@ -206,12 +297,20 @@ class EmsTcpClient:
                           document_types: set[str] | None = None,
                             style_numbers: set[str] | None = None, seasons: set[str] | None = None,
                             shipment_groups: set[str] | None = None, unit_price_threshold: float | None = None,
-                            unit_discount_threshold: float | None = None, return_whole_order: bool = True) -> bytes:
+                            unit_discount_threshold: float | None = None, return_whole_order: bool = True,
+                            amount_range: tuple[float | None, float | None] | None = None,
+                            unit_price_range: tuple[float | None, float | None] | None = None,
+                            unit_discount_range: tuple[float | None, float | None] | None = None) -> bytes:
         with socket.create_connection((self.data_host, self.data_port), timeout=self.timeout_seconds) as sock:
             sock.settimeout(self.timeout_seconds)
             for request in self._INITIALIZATION_FRAMES:
                 sock.sendall(request)
                 recv_frame(sock)
-            sock.sendall(build_sale_detail_frame(start_date, end_date, store_names, amount_threshold, document_types, style_numbers, seasons, shipment_groups, unit_price_threshold, unit_discount_threshold, return_whole_order))
+            sock.sendall(build_sale_detail_frame(
+                start_date, end_date, store_names, amount_threshold, document_types,
+                style_numbers, seasons, shipment_groups, unit_price_threshold,
+                unit_discount_threshold, return_whole_order, amount_range,
+                unit_price_range, unit_discount_range,
+            ))
             result = recv_frame(sock)
             return result

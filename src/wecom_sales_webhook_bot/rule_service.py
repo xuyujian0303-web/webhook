@@ -121,10 +121,17 @@ def _match_condition(order: SalesOrder, condition: RuleConditionDTO) -> bool:
     return any(_match_one(value, condition) for value in values)
 
 
-def evaluate_rule_group(order: SalesOrder, rule_group: RuleGroupDTO, default_start_date: date | None = None) -> bool:
+def evaluate_rule_group(
+    order: SalesOrder,
+    rule_group: RuleGroupDTO,
+    default_start_date: date | None = None,
+    server_filtered_fields: set[str] | None = None,
+) -> bool:
     """Apply both groups: every ALL condition and at least one ANY condition."""
     grouped: dict[str, list[RuleConditionDTO]] = {"all": [], "any": []}
     for condition in rule_group.conditions or []:
+        if canonical_field_name(condition.field_name) in (server_filtered_fields or set()):
+            continue
         # Compatibility with the original date_range condition persisted by
         # the web UI before generic date_between was introduced.
         if condition.field_name == "sold_at" and condition.operator == "date_range":

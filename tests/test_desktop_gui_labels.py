@@ -10,5 +10,11 @@ def test_rule_editor_uses_chinese_filter_scope_labels() -> None:
     assert FIELD_CHOICES
     assert all("EMS server" not in choice for choice in FIELD_CHOICES)
     assert all("Local filter" not in choice for choice in FIELD_CHOICES)
-    assert all("EMS服务器筛选" in choice or "下载后本地筛选" in choice for choice in FIELD_CHOICES)
+    assert all(
+        "EMS服务器筛选" in choice
+        or "下载后本地筛选" in choice
+        or "EMS查询参数/本地校验" in choice
+        for choice in FIELD_CHOICES
+    )
+    assert "EMS查询参数/本地校验" in next(choice for choice in FIELD_CHOICES if "[style_no]" in choice)
     assert FIELD_DROPDOWN_WIDTH >= max(len(choice) for choice in FIELD_CHOICES)

@@ -57,7 +57,11 @@ CONDITION_GROUP_LABELS = {"all": "全部满足", "any": "任一满足"}
 CONDITION_GROUP_LABEL_TO_KEY = {label: key for key, label in CONDITION_GROUP_LABELS.items()}
 
 def _field_choice(key: str, label: str) -> str:
-    location = "EMS服务器筛选" if key in EMS_SERVER_FIELDS else "下载后本地筛选"
+    location = (
+        "EMS查询参数/本地校验" if key == "style_no"
+        else "EMS服务器筛选" if key in EMS_SERVER_FIELDS
+        else "下载后本地筛选"
+    )
     if key == "document_type":
         label = f"{label}（销售/换货/退货/预购；EMS编码 0/2/1/3）"
     return f"{label} [{key}] [{location}]"

@@ -30,7 +30,27 @@ def infer_document_type(total_amount: float, raw_type: object = None) -> str:
     }
     if text in aliases:
         return aliases[text]
-    return "return" if total_amount < 0 else "sale"
+    return "return" if total_amount < 0 else "unknown"
+
+
+def _extract_document_type_code(record: bytes) -> str | None:
+    first_item = len(record)
+    offset = 0
+    marker = b"\x0b\x00\x02"
+    while True:
+        offset = record.find(marker, offset)
+        if offset < 0 or offset + 7 > len(record):
+            break
+        length = int.from_bytes(record[offset + 3:offset + 7], "big")
+        end = offset + 7 + length
+        if end <= len(record):
+            value = record[offset + 7:end]
+            if value.startswith(b"G") and len(value) >= 15:
+                first_item = offset
+                break
+        offset += len(marker)
+    match = re.search(rb"\x03\x00\x05(?P<code>[\x00-\x03])", record[:first_item])
+    return str(match.group("code")[0]) if match else None
 
 
 def _is_order_number(value: object) -> bool:
@@ -214,9 +234,8 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
             total_amount = raw_amount / 1000
         else:
             total_amount = 0.0
-        # Return records are encoded with a negative whole-order amount. Do
-        # not let the SalesOrder default ("sale") make them pass a 0,3 rule.
-        document_type = infer_document_type(total_amount)
+        # The compact header field 5 carries the EMS document type code.
+        document_type = infer_document_type(total_amount, _extract_document_type_code(record))
         items: list[SalesLineItem] = []
         for item_pos, index in enumerate(product_indexes):
             next_index = product_indexes[item_pos + 1] if item_pos + 1 < len(product_indexes) else len(string_entries)
