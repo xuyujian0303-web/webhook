@@ -200,3 +200,17 @@ def test_negative_ems_amount_is_return_and_cannot_match_sale_preorder_rule() -> 
         conditions=[RuleConditionDTO("document_type", "in", "0,3")],
     )
     assert not evaluate_rule_group(returned, rule)
+
+
+def test_not_equals_accepts_multiple_excluded_values() -> None:
+    order = SalesOrder(
+        order_no="SO-STORE",
+        sold_at=datetime(2026, 8, 24, 10, 30),
+        store_name="G88D",
+        total_amount=1000,
+    )
+    rule = RuleGroupDTO(
+        "排除多个销售机构",
+        conditions=[RuleConditionDTO("store_name", "not_equals", "G88T,G88D,G89P")],
+    )
+    assert not evaluate_rule_group(order, rule)

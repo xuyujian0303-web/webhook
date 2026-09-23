@@ -85,7 +85,7 @@ def _match_one(value: str, condition: RuleConditionDTO) -> bool:
     if operator == "is_empty": return not value
     if operator == "is_not_empty": return bool(value)
     if operator == "equals": return value == (wanted[0] if wanted else "")
-    if operator == "not_equals": return value != (wanted[0] if wanted else "")
+    if operator == "not_equals": return value not in wanted if wanted else True
     if operator == "contains": return (wanted[0] if wanted else "") in value
     if operator == "not_contains": return (wanted[0] if wanted else "") not in value
     if operator == "in": return value in wanted
