@@ -33,6 +33,12 @@ class EmsSalesDataSource:
                     unit_discount_range: tuple[float | None, float | None] | None = None):
         if document_types is None:
             document_types = {"sale"}
+        if store_names is not None:
+            store_names = {
+                str(value).strip().upper()
+                for value in store_names
+                if str(value).strip()
+            }
         start = (start_at or datetime(2023, 9, 20)).strftime("%Y%m%d")
         end = (end_at or datetime.now()).strftime("%Y%m%d")
         self.client.login(self.username, self.password)
@@ -72,7 +78,7 @@ class EmsSalesDataSource:
             orders = [order for order in orders
                       if (amount_low is None or order.total_amount >= amount_low)
                       and (amount_high is None or order.total_amount <= amount_high)
-                      and (not store_names or order.store_name in store_names)]
+                      and (not store_names or order.store_name.strip().upper() in store_names)]
         if document_types:
             wanted_types = {
                 normalize_document_type(value)

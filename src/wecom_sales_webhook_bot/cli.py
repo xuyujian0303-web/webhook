@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import msvcrt
 import time
@@ -37,6 +38,19 @@ REQUIRED_CSV_FIELD_MAPPING_KEYS = (
     "style_no",
     "unit_price",
 )
+
+
+def _runtime_controls_from_config(
+    config_controls: RuntimeControls,
+    database_url: str | None = None,
+) -> RuntimeControls:
+    if database_url is None:
+        return config_controls
+    persisted_controls = load_runtime_controls(database_url, config_controls)
+    return replace(
+        config_controls,
+        show_chinese_org_names=persisted_controls.show_chinese_org_names,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -133,9 +147,9 @@ def main() -> None:
                     return_whole_order=config.runtime.return_whole_order,
     )
     if config.backend is not None:
-        runtime_controls = load_runtime_controls(
-            config.backend.database_url,
+        runtime_controls = _runtime_controls_from_config(
             runtime_controls,
+            config.backend.database_url,
         )
     store_name_mapping = config.store_mapping if runtime_controls.show_chinese_org_names else None
     sales_filter = None
@@ -228,11 +242,6 @@ def main() -> None:
                 database_rule_groups, active_template_body = load_runtime_settings(
                     config.backend.database_url
                 )
-                runtime_controls = load_runtime_controls(
-                    config.backend.database_url,
-                    runtime_controls,
-                )
-                store_name_mapping = config.store_mapping if runtime_controls.show_chinese_org_names else None
             run_once(
                 data_source=data_source,
                 sales_filter=sales_filter,

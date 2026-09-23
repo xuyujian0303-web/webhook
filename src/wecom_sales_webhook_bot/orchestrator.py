@@ -36,6 +36,9 @@ def _numeric_bounds(conditions, field_name: str) -> tuple[float | None, float | 
             if condition.operator == "between" and len(values) == 2:
                 low, high = float(values[0]), float(values[1])
                 found = True
+            elif condition.operator == "equals" and values and values[0]:
+                low = high = float(values[0])
+                found = True
             elif condition.operator in {"gt", "gte"} and values and values[0]:
                 value = float(values[0])
                 low = value if low is None else max(low, value)
@@ -65,11 +68,11 @@ def _rule_date_window(conditions, start_at: datetime, end_at: datetime) -> tuple
         if condition.field_name != "sold_at":
             continue
         values = _condition_values(condition)
-        if condition.operator in {"after", "gt", "gte"} and values:
+        if condition.operator in {"after", "gt", "gte", "equals"} and values:
             parsed = _parse_rule_date(values[0])
             if parsed:
                 start_day = max(start_day, parsed)
-        elif condition.operator == "before" and values:
+        if condition.operator in {"before", "lt", "lte", "equals"} and values:
             parsed = _parse_rule_date(values[0])
             if parsed:
                 end_day = min(end_day, parsed)
@@ -89,6 +92,39 @@ def _rule_date_window(conditions, start_at: datetime, end_at: datetime) -> tuple
 
 def _condition_group(condition, default_mode: str) -> str:
     return condition.condition_group if condition.condition_group in {"all", "any"} else default_mode
+
+
+def _server_document_type_filter(rule_groups) -> set[str]:
+    allowed: set[str] = set()
+    for group in rule_groups:
+        conditions = getattr(group, "conditions", [])
+        mode = getattr(group, "match_mode", "all")
+        grouped = {
+            key: [c for c in conditions if _condition_group(c, mode) == key]
+            for key in ("all", "any")
+        }
+        any_conditions = grouped["any"]
+        any_document_types = [c for c in any_conditions if c.field_name == "document_type"]
+        if any(c.field_name != "document_type" for c in any_conditions):
+            return set()
+        if any_document_types:
+            selected_conditions = any_document_types
+        else:
+            selected_conditions = [
+                c for c in grouped["all"] if c.field_name == "document_type"
+            ]
+            if not selected_conditions:
+                allowed.add("sale")
+                continue
+        for condition in selected_conditions:
+            if condition.operator not in {"equals", "in"}:
+                return set()
+            allowed.update(
+                normalize_document_type(value)
+                for value in _condition_values(condition)
+                if value
+            )
+    return allowed
 
 
 def _load_orders(data_source, query_kwargs):
@@ -140,6 +176,8 @@ def run_once(
         scan_end = now_func()
         query_kwargs = {"start_at": scan_start, "end_at": scan_end}
         local_rule_groups = database_rule_groups
+        if database_rule_groups:
+            query_kwargs["document_types"] = _server_document_type_filter(database_rule_groups)
         # Push down only conjunctive predicates. OR predicates remain local.
         if database_rule_groups and len(database_rule_groups) == 1:
             group = database_rule_groups[0]
@@ -154,20 +192,8 @@ def run_once(
                                         if c.field_name == "shipment_group" and c.operator in {"equals", "in"}), None)
                 stores = next((set(_condition_values(c)) for c in conditions
                                if c.field_name == "store_name" and c.operator in {"equals", "in"}), None)
-                doc_types = next((set(_condition_values(c)) for c in conditions
-                                  if c.field_name == "document_type" and c.operator in {"equals", "in"}), None)
                 style_numbers = next((set(_condition_values(c)) for c in conditions
                                       if c.field_name == "style_no" and c.operator in {"equals", "in", "contains"}), None)
-                if doc_types is None:
-                    # EMS document type 0 is a normal sale. Do not include
-                    # returns, exchanges, or preorders unless explicitly
-                    # requested by a rule.
-                    doc_types = {"sale"}
-                doc_types = {
-                    normalize_document_type(item)
-                    for item in doc_types
-                    if str(item).strip()
-                }
                 if amount is not None: query_kwargs["amount_range"] = amount
                 if discount is not None: query_kwargs["unit_discount_range"] = discount
                 if unit_price is not None: query_kwargs["unit_price_range"] = unit_price
@@ -183,8 +209,7 @@ def run_once(
                 # hint cannot accidentally turn an unmatched order into a
                 # match.
                 local_rule_groups = [group]
-                if stores: query_kwargs["store_names"] = {x.strip() for x in stores if x.strip()}
-                if doc_types: query_kwargs["document_types"] = {x.strip() for x in doc_types if x.strip()}
+                if stores: query_kwargs["store_names"] = {x.strip().upper() for x in stores if x.strip()}
         orders = _load_orders(data_source, query_kwargs)
         LOGGER.info("loaded %d orders; dates=%s", len(orders), sorted({order.sold_at.date().isoformat() for order in orders}))
     except Exception as exc:  # noqa: BLE001

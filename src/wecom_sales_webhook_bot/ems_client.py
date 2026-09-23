@@ -5,6 +5,24 @@ import socket
 import struct
 
 from .ems_protocol import frame, recv_frame
+from .rule_service import normalize_document_type
+
+
+def _document_type_codes(document_types: set[str] | None) -> list[str]:
+    code_by_type = {"sale": "0", "return": "1", "exchange": "2", "preorder": "3"}
+    return sorted({
+        code_by_type[normalized]
+        for value in document_types or set()
+        if (normalized := normalize_document_type(value)) in code_by_type
+    })
+
+
+def _normalized_store_names(store_names: set[str] | None) -> list[str]:
+    return sorted({
+        str(value).strip().upper()
+        for value in store_names or set()
+        if str(value).strip()
+    })
 
 
 def _field_string(index: int, value: str) -> bytes:
@@ -36,18 +54,14 @@ def _build_captured_filter_frame(
         "exchange": "2", "2": "2", "换货": "2",
         "preorder": "3", "3": "3", "预购": "3",
     }
-    codes = sorted({
-        type_codes[str(value).strip().casefold()]
-        for value in document_types or set()
-        if str(value).strip().casefold() in type_codes
-    })
-    stores = sorted({str(value).strip() for value in store_names or set() if str(value).strip()})
+    codes = _document_type_codes(document_types)
+    stores = _normalized_store_names(store_names)
     if any("'" in store for store in stores):
         raise ValueError("EMS store filter contains an unsupported quote")
 
     parameters: list[tuple[int, str]] = [
         (0x2712, "20230923"),
-        (5, " in ( " + ",".join(f"'{store}'" for store in stores) + " ) " if stores else ""),
+        (5, " in ( " + ",".join(f"'{store}'" for store in stores) + " )" if stores else ""),
         (6, " in ( " + ",".join(codes) + " ) " if codes else ""),
         (3, start_date),
         (4, end_date),
@@ -156,10 +170,9 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
         # Exact captured querySaleDetailList container shape. The values are
         # wrapped as parameter entries; they must not be appended to the old
         # short template because EMS validates the nested item count.
-        stores = sorted(x.strip() for x in (store_names or set()) if x.strip())
+        stores = _normalized_store_names(store_names)
         store_expr = (" = '" + stores[0] + "'") if len(stores) == 1 else (" in (" + ",".join("'" + x + "'" for x in stores) + ")" if stores else "")
-        type_codes = {"sale": "0", "preorder": "3", "return": "1", "exchange": "2"}
-        codes = [type_codes[x] for x in sorted(document_types or set()) if x in type_codes]
+        codes = _document_type_codes(document_types)
         type_expr = (" = " + codes[0]) if len(codes) == 1 else (" in (" + ",".join(codes) + ")" if codes else "")
         def entry(index: int, value: str) -> bytes:
             return b"\x00\x08\x00\x01" + struct.pack(">I", index) + _field_string(2, value)
@@ -187,7 +200,7 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
                 + b"\x00\x08\x00\x02\x00L\x55\xbf\x08\x00\x03\x00\x00\x00\x01\x00")
         return frame(body)
     if not advanced and (store_names or amount_threshold is not None or document_types):
-        stores = sorted(x.strip() for x in (store_names or set()) if x.strip())
+        stores = _normalized_store_names(store_names)
         if len(stores) == 1:
             expression = " = '" + stores[0] + "'"
         elif stores:
@@ -198,11 +211,33 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
             encoded = value.encode("utf-8")
             return b"\x0b\x00\x02" + struct.pack(">I", len(encoded)) + encoded
         if document_types and stores and not (style_numbers or seasons or shipment_groups or unit_price_threshold is not None or unit_discount_threshold is not None or not return_whole_order):
-            # Official EMS frame captured for the "sale" document filter.
+            # Keep the captured simple-filter layout while substituting the
+            # requested store and document type.
             raw = bytes.fromhex("000000c98001000100000013717565727953616c6544657461696c4c697374000006210f00010c00000007080001000027120b000200000008323032333039303500080001000000050b000200000009203d2027473838392700080001000000060b000200000004203d203000080001000000030b000200000008323032363039303100080001000000040b000200000008323032363039303500080001000000090b00020000000431303030000800010000001d0b0002000000013000080002004c55bf0800030000000100")
-            old_store = b" in ('G899','G820','G889')"
             expression = (" = '" + stores[0] + "'") if len(stores) == 1 else " in (" + ",".join("'" + x + "'" for x in stores) + ")"
-            raw = raw.replace(old_store, expression.encode(), 1)
+            old_store = (
+                b"\x00\x08\x00\x01" + struct.pack(">I", 5)
+                + field(" = 'G889'")
+            )
+            new_store = (
+                b"\x00\x08\x00\x01" + struct.pack(">I", 5)
+                + field(expression)
+            )
+            raw = raw.replace(old_store, new_store, 1)
+            codes = _document_type_codes(document_types)
+            type_expression = (
+                " in ( " + ",".join(codes) + " ) " if len(codes) != 1
+                else " = " + codes[0]
+            )
+            old_type = (
+                b"\x00\x08\x00\x01" + struct.pack(">I", 6)
+                + field(" = 0")
+            )
+            new_type = (
+                b"\x00\x08\x00\x01" + struct.pack(">I", 6)
+                + field(type_expression)
+            )
+            raw = raw.replace(old_type, new_type, 1)
             # The first date in the official frame is a fixed protocol
             # baseline (20230905), not the requested start date. Replace only
             # the two actual range fields that follow it.
@@ -221,11 +256,10 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
             container_len = 6 if document_types or amount_threshold is not None or len(stores) == 1 else 5
             filtered_hex = ("000000b78001000100000013717565727953616c6544657461696c4c697374000004de0f00010c"
                             f"000000{container_len:02x}080001000027120b00020000000832303233303930350008000100000005")
-            type_codes = {"sale": "0", "preorder": "3", "return": "1", "exchange": "2"}
-            codes = [type_codes[x] for x in sorted(document_types or set()) if x in type_codes]
+            codes = _document_type_codes(document_types)
             type_expr = (" = " + codes[0]) if len(codes) == 1 else (" in (" + ",".join(codes) + ")" if codes else "")
             filtered_hex += (field(expression).hex() + ("0008000100000006" + field(type_expr).hex() if type_expr else "")
-                             + "0008000100000003" + field(end_date).hex()
+                             + "0008000100000003" + field(start_date).hex()
                              + "0008000100000004" + field(end_date).hex()
                              + (("0008000100000009" + field(str(int(amount_threshold))).hex()) if amount_threshold is not None else "")
                              + (("000800010000000f" + field(",".join(sorted(style_numbers))).hex()) if style_numbers else "")
