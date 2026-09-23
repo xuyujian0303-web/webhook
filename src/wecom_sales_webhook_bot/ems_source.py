@@ -43,6 +43,14 @@ class EmsSalesDataSource:
         end = (end_at or datetime.now()).strftime("%Y%m%d")
         self.client.login(self.username, self.password)
         server_query_succeeded = True
+        query_kwargs = dict(
+            store_names=store_names, amount_threshold=amount_threshold,
+            document_types=document_types, style_numbers=style_numbers, seasons=seasons,
+            shipment_groups=shipment_groups, unit_price_threshold=unit_price_threshold,
+            unit_discount_threshold=unit_discount_threshold, return_whole_order=return_whole_order,
+            amount_range=amount_range, unit_price_range=unit_price_range,
+            unit_discount_range=unit_discount_range,
+        )
         try:
             payload = self.client.query_sale_detail(
                 start, end, store_names=store_names, amount_threshold=amount_threshold,
@@ -50,17 +58,24 @@ class EmsSalesDataSource:
                 shipment_groups=shipment_groups, unit_price_threshold=unit_price_threshold,
                 unit_discount_threshold=unit_discount_threshold, return_whole_order=return_whole_order,
                 amount_range=amount_range, unit_price_range=unit_price_range,
-                unit_discount_range=unit_discount_range)
+                unit_discount_range=unit_discount_range,
+                _omit_empty_parameters=True,
+            )
         except ConnectionError:
-            if any((
-                store_names, document_types, style_numbers, seasons, shipment_groups,
-                amount_threshold is not None, amount_range is not None,
-                unit_price_threshold is not None, unit_price_range is not None,
-                unit_discount_threshold is not None, unit_discount_range is not None,
-            )):
-                raise
-            server_query_succeeded = False
-            payload = self.client.query_sale_detail(start, end)
+            try:
+                payload = self.client.query_sale_detail(
+                    start, end, **query_kwargs, _omit_empty_parameters=False
+                )
+            except ConnectionError:
+                if any((
+                    store_names, document_types, style_numbers, seasons, shipment_groups,
+                    amount_threshold is not None, amount_range is not None,
+                    unit_price_threshold is not None, unit_price_range is not None,
+                    unit_discount_threshold is not None, unit_discount_range is not None,
+                )):
+                    raise
+                server_query_succeeded = False
+                payload = self.client.query_sale_detail(start, end)
         orders = decode_sale_detail_orders(payload)
         # EMS may return records just outside the visible date range. Enforce
         # the requested local boundary after decoding to match the GUI export.

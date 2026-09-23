@@ -109,6 +109,24 @@ def test_open_ended_range_keeps_both_captured_parameter_slots() -> None:
         assert encoded in request
 
 
+def test_compact_filter_frame_omits_empty_optional_parameters() -> None:
+    request = build_sale_detail_frame(
+        "20260922",
+        "20260923",
+        store_names={"G899", "G889"},
+        document_types={"sale", "preorder"},
+        amount_range=(20000, None),
+        omit_empty_parameters=True,
+    )
+    assert b"20000" in request
+    assert struct.pack(">I", 10) not in request
+    assert struct.pack(">I", 22) not in request
+    assert struct.pack(">I", 24) not in request
+    assert struct.pack(">I", 20) not in request
+    assert struct.pack(">I", 28) not in request
+    assert struct.pack(">I", 32) not in request
+
+
 @pytest.mark.parametrize(
     ("type_codes", "expected_expression"),
     [

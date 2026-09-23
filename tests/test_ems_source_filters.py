@@ -120,7 +120,9 @@ def test_filtered_query_failure_does_not_fall_back_to_unfiltered_request() -> No
             amount_range=(10000, 20000),
         )
 
-    assert len(client.calls) == 1
+    # The source first tries the compact frame and then retries with the
+    # complete captured frame before surfacing the connection failure.
+    assert len(client.calls) == 2
 
 
 def test_saved_rule_conditions_become_ems_server_query_parameters(tmp_path) -> None:

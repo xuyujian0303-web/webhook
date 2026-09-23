@@ -47,6 +47,7 @@ def _build_captured_filter_frame(
     shipment_groups: set[str] | None,
     style_numbers: set[str] | None,
     return_whole_order: bool,
+    omit_empty_parameters: bool = False,
 ) -> bytes:
     type_codes = {
         "sale": "0", "0": "0", "销售": "0",
@@ -87,6 +88,13 @@ def _build_captured_filter_frame(
         (29, "1" if return_whole_order else "0"),
         (32, ",".join(sorted(style_numbers or set())).casefold()),
     ))
+    if omit_empty_parameters:
+        required = {0x2712, 3, 4, 29}
+        parameters = [
+            (index, value)
+            for index, value in parameters
+            if index in required or value
+        ]
 
     entries = bytearray()
     for position, (index, value) in enumerate(parameters):
@@ -121,7 +129,8 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
                             unit_discount_threshold: float | None = None, return_whole_order: bool = True,
                             amount_range: tuple[float | None, float | None] | None = None,
                             unit_price_range: tuple[float | None, float | None] | None = None,
-                            unit_discount_range: tuple[float | None, float | None] | None = None) -> bytes:
+                            unit_discount_range: tuple[float | None, float | None] | None = None,
+                            omit_empty_parameters: bool = False) -> bytes:
     """Build the currently verified read-only query shape (YYYYMMDD dates)."""
     amount_range = amount_range or ((amount_threshold, None) if amount_threshold is not None else None)
     unit_price_range = unit_price_range or ((unit_price_threshold, None) if unit_price_threshold is not None else None)
@@ -132,7 +141,7 @@ def build_sale_detail_frame(start_date: str, end_date: str, store_names: set[str
         return _build_captured_filter_frame(
             start_date, end_date, store_names, document_types, amount_range,
             unit_price_range, unit_discount_range, seasons, shipment_groups,
-            style_numbers, return_whole_order,
+            style_numbers, return_whole_order, omit_empty_parameters,
         )
     hex_template = (
         "000000748001000100000013717565727953616c6544657461696c4c697374"
@@ -334,7 +343,8 @@ class EmsTcpClient:
                             unit_discount_threshold: float | None = None, return_whole_order: bool = True,
                             amount_range: tuple[float | None, float | None] | None = None,
                             unit_price_range: tuple[float | None, float | None] | None = None,
-                            unit_discount_range: tuple[float | None, float | None] | None = None) -> bytes:
+                            unit_discount_range: tuple[float | None, float | None] | None = None,
+                            _omit_empty_parameters: bool = False) -> bytes:
         with socket.create_connection((self.data_host, self.data_port), timeout=self.timeout_seconds) as sock:
             sock.settimeout(self.timeout_seconds)
             for request in self._INITIALIZATION_FRAMES:
@@ -345,6 +355,7 @@ class EmsTcpClient:
                 style_numbers, seasons, shipment_groups, unit_price_threshold,
                 unit_discount_threshold, return_whole_order, amount_range,
                 unit_price_range, unit_discount_range,
+                omit_empty_parameters=_omit_empty_parameters,
             ))
             result = recv_frame(sock)
             return result
