@@ -7,8 +7,9 @@ set "LOG=%CD%\setup.log"
 set "BOOTSTRAP_PYTHON="
 where py >nul 2>nul
 if not errorlevel 1 (
-    py -3.12 -c "import sys; assert sys.version_info >= (3, 12)" >nul 2>nul
-    if not errorlevel 1 set "BOOTSTRAP_PYTHON=py -3.12"
+    rem Use the newest installed Python 3.x runtime. The project requires 3.12 or newer.
+    py -3 -c "import sys; assert sys.version_info >= (3, 12)" >nul 2>nul
+    if not errorlevel 1 set "BOOTSTRAP_PYTHON=py -3"
 )
 if not defined BOOTSTRAP_PYTHON (
     where python >nul 2>nul
@@ -55,8 +56,9 @@ if errorlevel 1 goto :show_failure
 exit /b 0
 
 :no_python
-echo Python 3.12 or newer and winget were not found.
-echo Install Python from https://www.python.org/downloads/windows/ and run this file again.
+echo Python 3.12 or newer was not found, and winget is unavailable.
+echo Install Python 3.12 or newer from https://www.python.org/downloads/windows/
+echo Make sure "Add Python to PATH" is selected, then run this file again.
 goto :show_failure
 
 :show_failure
