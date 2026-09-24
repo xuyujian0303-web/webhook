@@ -20,6 +20,7 @@ from wecom_sales_webhook_bot.message_template_service import (
     build_preview_template_context, delete_message_template,
     load_or_initialize_message_template_store, save_message_template,
 )
+from wecom_sales_webhook_bot.message_template_schema import ALLOWED_FILTERS, REFERENCE_VARIABLES
 from wecom_sales_webhook_bot.rule_models import JobRun, PushRecord, RuleCondition, RuleGroup
 from wecom_sales_webhook_bot.rule_service import operators_for_field
 from wecom_sales_webhook_bot.sales_fields import FIELD_LABELS, selectable_fields
@@ -72,6 +73,40 @@ FIELD_CHOICE_BY_KEY = {key: _field_choice(key, label) for key, label, _ in selec
 FIELD_DROPDOWN_WIDTH = max((len(choice) for choice in FIELD_CHOICES), default=52)
 
 LEGACY_DOCUMENT_TYPE_CODES = {"0": "sale", "1": "return", "2": "exchange", "3": "preorder"}
+
+
+def build_template_reference_text() -> str:
+    """Return the copyable variable reference shown beside the template editor."""
+    lines = [
+        "订单变量（可直接使用）：",
+    ]
+    for item in REFERENCE_VARIABLES:
+        if item["scope"] == "订单":
+            lines.append(f"{{{{ {item['token']} }}}}  -  {item['label']}，示例：{item['example']}")
+
+    lines.extend(
+        [
+            "",
+            "商品变量（必须放在商品循环内）：",
+            "{% for item in order.items %}",
+        ]
+    )
+    for item in REFERENCE_VARIABLES:
+        if item["scope"] == "循环内":
+            lines.append(f"  {{{{ {item['token']} }}}}  -  {item['label']}，示例：{item['example']}")
+    lines.extend(
+        [
+            "{% endfor %}",
+            "",
+            "常用格式化：",
+            "{{ order.total_amount | money }}  - 金额保留两位小数",
+            "{{ order.sold_at | datetime }}  - 日期时间格式化",
+            f"可用过滤器：{', '.join(sorted(ALLOWED_FILTERS))}",
+            "",
+            "提示：变量名必须完全一致；商品变量不能在循环外使用。",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _normalize_legacy_condition(condition: RuleCondition) -> RuleCondition:
@@ -339,7 +374,38 @@ class DesktopApp:
         self.template_box = ttk.Combobox(bar, textvariable=self.template_choice, width=42, state="readonly"); self.template_box.pack(side="left", padx=8); self.template_box.bind("<<ComboboxSelected>>", lambda _: self._load_template())
         ttk.Button(bar, text="新建", command=self._new_template).pack(side="left"); ttk.Button(bar, text="启用选中", command=self._activate_template).pack(side="left", padx=8); ttk.Button(bar, text="删除选中", command=self._delete_template).pack(side="left")
         row = ttk.Frame(page); row.pack(fill="x", pady=8); ttk.Label(row, text="模板名称").pack(side="left"); self.template_name = tk.StringVar(); ttk.Entry(row, textvariable=self.template_name, width=45).pack(side="left", padx=8); ttk.Button(row, text="保存模板", command=self._save_template).pack(side="left")
-        self.template_text = tk.Text(page, width=110, height=20, undo=True); self.template_text.pack(fill="both", expand=True)
+        editor_area = ttk.Frame(page)
+        editor_area.pack(fill="both", expand=True)
+        editor_area.columnconfigure(0, weight=1)
+        editor_area.rowconfigure(0, weight=1)
+        self.template_text = tk.Text(editor_area, width=90, height=20, undo=True, wrap="none")
+        self.template_text.grid(row=0, column=0, sticky="nsew")
+        template_scroll = ttk.Scrollbar(editor_area, orient="vertical", command=self.template_text.yview)
+        template_scroll.grid(row=0, column=1, sticky="ns")
+        self.template_text.configure(yscrollcommand=template_scroll.set)
+        reference_frame = ttk.LabelFrame(editor_area, text="变量名称提示")
+        reference_frame.grid(row=0, column=2, sticky="nsew", padx=(12, 0))
+        reference_frame.columnconfigure(0, weight=1)
+        reference_frame.rowconfigure(0, weight=1)
+        reference_text = tk.Text(
+            reference_frame,
+            width=52,
+            height=20,
+            wrap="word",
+            state="normal",
+            background="#f5f5f5",
+            relief="flat",
+        )
+        reference_text.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        reference_scroll = ttk.Scrollbar(reference_frame, orient="vertical", command=reference_text.yview)
+        reference_scroll.grid(row=0, column=1, sticky="ns", pady=6)
+        reference_text.configure(yscrollcommand=reference_scroll.set)
+        reference_text.insert("1.0", build_template_reference_text())
+        reference_text.configure(state="disabled")
+        ttk.Label(
+            page,
+            text="左侧编辑模板，右侧变量可直接选中复制；保存前建议点击“预览”检查实际效果。",
+        ).pack(anchor="w", pady=(6, 0))
         ttk.Button(page, text="预览", command=self._preview_template).pack(anchor="w", pady=8)
         self.template_store = {}; self._refresh_templates()
 
