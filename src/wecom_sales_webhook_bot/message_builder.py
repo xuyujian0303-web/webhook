@@ -240,8 +240,10 @@ def build_markdown_v2_message(
             {
                 "order": {
                     "order_no": order.order_no,
-                    "store_name": order.store_name_display or order.store_name,
-                    "performance_org": order.performance_org_display or order.performance_org or "",
+                    # Keep code and display-name variables distinct.  The
+                    # explicit *_display variables are the only mapped values.
+                    "store_name": order.store_name,
+                    "performance_org": order.performance_org or "",
                     "store_name_display": order.store_name_display or order.store_name,
                     "performance_org_display": order.performance_org_display or order.performance_org or "",
                     "sold_at": order.sold_at,

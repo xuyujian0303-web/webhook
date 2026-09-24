@@ -386,3 +386,55 @@ def test_message_builder_renders_saved_template_body() -> None:
     assert "> 张三" in message
     assert "S1" in message
     assert "S1 https://img.example.com/p1.jpg" in message
+
+
+def test_message_builder_keeps_raw_org_codes_separate_from_display_names() -> None:
+    order = SalesOrder(
+        order_no="SO-ORG",
+        sold_at=datetime(2026, 6, 5, 10, 50, 0),
+        store_name="G899",
+        performance_org="G889",
+        store_name_display="北京SKP",
+        performance_org_display="上海久光",
+        total_amount=21500,
+        salesperson="张三",
+        total_quantity=2,
+        customer_source="VIP顾客",
+        promotion_material="秋季画册",
+        activity_type="促销活动",
+        card_type="金卡",
+        items=[
+            SalesLineItem(
+                barcode="B1",
+                style_no="S1",
+                unit_price=21500,
+                brand="Brand-A",
+                category="Coat",
+                image_url="https://img.example.com/p1.jpg",
+            )
+        ],
+    )
+    template = "\n".join(
+        [
+            "{{ order.store_name }}|{{ order.store_name_display }}",
+            "{{ order.performance_org }}|{{ order.performance_org_display }}",
+            "{{ order.salesperson }}|{{ order.total_quantity }}|{{ order.customer_source }}",
+            "{{ order.promotion_material }}|{{ order.activity_type }}|{{ order.card_type }}",
+            "{% for item in order.items %}{{ item.barcode }}|{{ item.style_no }}|{{ item.unit_price | money }}|{{ item.brand }}|{{ item.category }}|{{ item.image_url }}|{{ item.image_markdown }}{% endfor %}",
+        ]
+    )
+
+    message = build_markdown_v2_message(
+        order=order,
+        filter_result=FilterResult(matched=True, reason="manual_test"),
+        image_urls={},
+        max_images=8,
+        template_body=template,
+    )
+
+    assert "G899|北京SKP" in message
+    assert "G889|上海久光" in message
+    assert "张三|2|VIP顾客" in message
+    assert "秋季画册|促销活动|金卡" in message
+    assert "B1|S1|21500.00|Brand-A|Coat|https://img.example.com/p1.jpg" in message
+    assert "![S1.jpg](https://img.example.com/p1.jpg)" in message

@@ -195,6 +195,7 @@ def build_preview_template_context() -> dict:
             "total_quantity": 2,
             "customer_source": "会员推荐",
             "promotion_material": "秋季画册",
+            "activity_type": "促销活动",
             "card_type": "金卡",
             "match_reason": "金额命中",
             "items": [

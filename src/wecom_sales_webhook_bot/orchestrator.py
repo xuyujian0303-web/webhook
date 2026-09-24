@@ -222,11 +222,22 @@ def run_once(
 
     pending_orders: list[tuple[object, FilterResult]] = []
     seen_order_nos: set[str] = set()
+    normalized_mapping = {
+        str(key).strip().upper(): str(value).strip()
+        for key, value in (store_name_mapping or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
     for order in orders:
-        if store_name_mapping:
+        if normalized_mapping:
             order = replace(order,
-                            store_name_display=store_name_mapping.get(order.store_name, order.store_name),
-                            performance_org_display=store_name_mapping.get(order.performance_org or "", order.performance_org or ""))
+                            store_name_display=normalized_mapping.get(
+                                str(order.store_name).strip().upper(),
+                                order.store_name,
+                            ),
+                            performance_org_display=normalized_mapping.get(
+                                str(order.performance_org or "").strip().upper(),
+                                order.performance_org or "",
+                            ))
         if order.order_no in seen_order_nos or state_store.has_pushed(order.order_no):
             continue
         seen_order_nos.add(order.order_no)

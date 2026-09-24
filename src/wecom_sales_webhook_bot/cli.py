@@ -151,7 +151,11 @@ def main() -> None:
             runtime_controls,
             config.backend.database_url,
         )
-    store_name_mapping = config.store_mapping if runtime_controls.show_chinese_org_names else None
+    # Template variables keep the raw organization codes and expose mapped
+    # names through the explicit *_display variables.  Do not gate this on
+    # the legacy runtime toggle: a saved GUI template may request display
+    # names directly.
+    store_name_mapping = config.store_mapping
     sales_filter = None
     database_rule_groups = None
     active_template_body = None
