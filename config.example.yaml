@@ -2,11 +2,9 @@ data_source:
   kind: ems
   config_path: ./ems_config.json
 
-# 模板中的 *_display 变量使用这里的机构编码映射。
-# 未配置映射时，会回退显示原始机构编码。
-store_mapping:
-  G889: 上海久光
-  G899: 北京SKP
+# 模板中的 *_display 变量读取独立映射文件。
+# 缺失映射时会回退显示原始机构号。
+store_mapping_file: ./store_mapping.yaml
 
 wecom:
   # 可配置一个或多个企业微信群机器人地址；每条销售单会依次推送到全部地址。

@@ -5,6 +5,30 @@ from zipfile import ZipFile
 from xml.etree import ElementTree
 
 
+def load_store_mapping_file(path: str | Path | None) -> dict[str, str]:
+    """Load organization-code -> display-name mappings from YAML."""
+    if not path:
+        return {}
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    if isinstance(payload.get("store_mapping"), dict):
+        payload = payload["store_mapping"]
+    return {
+        str(key).strip().upper(): str(value).strip()
+        for key, value in payload.items()
+        if str(key).strip() and str(value).strip()
+    }
+
+
 def load_store_name_mapping(path: str | Path | None) -> dict[str, str]:
     """Read column 1 -> column 3 from the supplied XLSX without extra deps."""
     if not path:

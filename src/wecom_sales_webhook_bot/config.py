@@ -6,6 +6,8 @@ from typing import Optional
 
 import yaml
 
+from wecom_sales_webhook_bot.store_mapping import load_store_mapping_file
+
 
 @dataclass(frozen=True)
 class CsvConfig:
@@ -203,7 +205,18 @@ def load_config(path: Path) -> AppConfig:
     else:
         data_source_cfg = None
 
-    store_mapping = {str(key).strip(): str(value).strip() for key, value in (raw.get("store_mapping") or {}).items() if str(key).strip() and str(value).strip()}
+    mapping_file_value = raw.get("store_mapping_file", "./store_mapping.yaml")
+    mapping_file = Path(mapping_file_value)
+    if not mapping_file.is_absolute():
+        mapping_file = path.parent / mapping_file
+    store_mapping = load_store_mapping_file(mapping_file)
+    store_mapping.update(
+        {
+            str(key).strip().upper(): str(value).strip()
+            for key, value in (raw.get("store_mapping") or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+    )
 
     webhook_raw = raw["wecom"].get("webhook_urls", [raw["wecom"].get("webhook_url", "")])
     if isinstance(webhook_raw, str):

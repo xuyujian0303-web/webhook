@@ -45,6 +45,34 @@ api:
     assert config.api.timeout_seconds == 10
 
 
+def test_load_config_reads_external_store_mapping_and_keeps_missing_codes_unmapped(
+    tmp_path: Path,
+) -> None:
+    mapping_file = tmp_path / "store_mapping.yaml"
+    mapping_file.write_text("G887: 上海港汇恒隆\n", encoding="utf-8")
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"""
+store_mapping_file: {mapping_file.name}
+wecom:
+  webhook_url: https://example.com
+  timeout_seconds: 3
+  retry_times: 1
+runtime:
+  scan_interval_seconds: 30
+  max_images_per_message: 2
+  state_file: ./state.json
+  dry_run: true
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file)
+
+    assert config.store_mapping == {"G887": "上海港汇恒隆"}
+    assert "G00J" not in config.store_mapping
+
+
 def test_load_config_reads_legacy_prototype_config(tmp_path: Path) -> None:
     config_file = tmp_path / "config.yaml"
     config_file.write_text(
