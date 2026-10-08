@@ -133,6 +133,132 @@ def _load_orders(data_source, query_kwargs):
         return data_source.load_orders(**query_kwargs)
     supported = {key: value for key, value in query_kwargs.items() if key in parameters}
     return data_source.load_orders(**supported)
+
+
+def _query_kwargs_for_rule(
+    rule_group,
+    scan_start: datetime,
+    scan_end: datetime,
+    runtime_controls: RuntimeControls | None,
+) -> dict:
+    """Build one EMS query from one rule without mixing other rules into it."""
+    conditions = getattr(rule_group, "conditions", [])
+    query_kwargs = {
+        "start_at": scan_start,
+        "end_at": scan_end,
+        "return_whole_order": bool(getattr(runtime_controls, "return_whole_order", True)),
+    }
+    document_types = _server_document_type_filter([rule_group])
+    if document_types is not None:
+        query_kwargs["document_types"] = document_types
+
+    if not all(
+        _condition_group(condition, getattr(rule_group, "match_mode", "all")) == "all"
+        for condition in conditions
+    ):
+        return query_kwargs
+
+    amount = _numeric_bounds(conditions, "total_amount")
+    unit_price = _numeric_bounds(conditions, "unit_price")
+    discount = _numeric_bounds(conditions, "discount")
+    seasons = next(
+        (
+            set(_condition_values(condition))
+            for condition in conditions
+            if condition.field_name == "season"
+            and condition.operator in {"equals", "in"}
+        ),
+        None,
+    )
+    shipment_groups = next(
+        (
+            set(_condition_values(condition))
+            for condition in conditions
+            if condition.field_name == "shipment_group"
+            and condition.operator in {"equals", "in"}
+        ),
+        None,
+    )
+    stores = next(
+        (
+            set(_condition_values(condition))
+            for condition in conditions
+            if condition.field_name == "store_name"
+            and condition.operator in {"equals", "in"}
+        ),
+        None,
+    )
+    style_numbers = next(
+        (
+            set(_condition_values(condition))
+            for condition in conditions
+            if condition.field_name == "style_no"
+            and condition.operator in {"equals", "in", "contains"}
+        ),
+        None,
+    )
+    if amount is not None:
+        query_kwargs["amount_range"] = amount
+    if discount is not None:
+        query_kwargs["unit_discount_range"] = discount
+    if unit_price is not None:
+        query_kwargs["unit_price_range"] = unit_price
+    if seasons:
+        query_kwargs["seasons"] = {value.strip() for value in seasons if value.strip()}
+    if shipment_groups:
+        query_kwargs["shipment_groups"] = {
+            value.strip() for value in shipment_groups if value.strip()
+        }
+    if style_numbers:
+        query_kwargs["style_numbers"] = {
+            value.strip() for value in style_numbers if value.strip()
+        }
+    query_kwargs["start_at"], query_kwargs["end_at"] = _rule_date_window(
+        conditions,
+        query_kwargs["start_at"],
+        query_kwargs["end_at"],
+    )
+    if stores:
+        query_kwargs["store_names"] = {
+            value.strip().upper() for value in stores if value.strip()
+        }
+    return query_kwargs
+
+
+def _server_query_orders(
+    data_source,
+    rule_groups,
+    scan_start: datetime,
+    scan_end: datetime,
+    runtime_controls: RuntimeControls | None,
+) -> tuple[list[tuple[object, object]], list[str]]:
+    """Query each rule independently and return orders tagged with that rule."""
+    matched_orders: list[tuple[object, object]] = []
+    errors: list[str] = []
+    for rule_group in rule_groups:
+        query_kwargs = _query_kwargs_for_rule(
+            rule_group,
+            scan_start,
+            scan_end,
+            runtime_controls,
+        )
+        try:
+            orders = _load_orders(data_source, query_kwargs)
+            LOGGER.info(
+                "loaded %d orders for rule %s; dates=%s",
+                len(orders),
+                getattr(rule_group, "name", "<unnamed>"),
+                sorted({order.sold_at.date().isoformat() for order in orders}),
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = f"{getattr(rule_group, 'name', '<unnamed>')}: {exc}"
+            errors.append(message)
+            LOGGER.error("failed to load sales orders for rule %s: %s", getattr(rule_group, "name", "<unnamed>"), exc)
+            continue
+        matched_orders.extend((order, rule_group) for order in orders)
+    return matched_orders, errors
+
+
 def run_once(
     data_source,
     sales_filter,
@@ -166,6 +292,7 @@ def run_once(
         initialize_database(session_factory)
         db_session = session_factory()
 
+    query_errors: list[str] = []
     try:
         # Use the previous scan timestamp as the lower bound so an EMS scan
         # can recover records created since the last cycle.  The source keeps
@@ -174,48 +301,38 @@ def run_once(
         last_scan = state_store.get_last_scan_at()
         scan_start = service_started_at if last_scan is None else min(last_scan, service_started_at)
         scan_end = now_func()
-        query_kwargs = {"start_at": scan_start, "end_at": scan_end}
-        local_rule_groups = database_rule_groups
         if database_rule_groups:
-            query_kwargs["document_types"] = _server_document_type_filter(database_rule_groups)
-        # Push down only conjunctive predicates. OR predicates remain local.
-        if database_rule_groups and len(database_rule_groups) == 1:
-            group = database_rule_groups[0]
-            conditions = getattr(group, "conditions", [])
-            if all(_condition_group(c, getattr(group, "match_mode", "all")) == "all" for c in conditions):
-                amount = _numeric_bounds(conditions, "total_amount")
-                unit_price = _numeric_bounds(conditions, "unit_price")
-                discount = _numeric_bounds(conditions, "discount")
-                seasons = next((set(_condition_values(c)) for c in conditions
-                                if c.field_name == "season" and c.operator in {"equals", "in"}), None)
-                shipment_groups = next((set(_condition_values(c)) for c in conditions
-                                        if c.field_name == "shipment_group" and c.operator in {"equals", "in"}), None)
-                stores = next((set(_condition_values(c)) for c in conditions
-                               if c.field_name == "store_name" and c.operator in {"equals", "in"}), None)
-                style_numbers = next((set(_condition_values(c)) for c in conditions
-                                      if c.field_name == "style_no" and c.operator in {"equals", "in", "contains"}), None)
-                if amount is not None: query_kwargs["amount_range"] = amount
-                if discount is not None: query_kwargs["unit_discount_range"] = discount
-                if unit_price is not None: query_kwargs["unit_price_range"] = unit_price
-                if seasons: query_kwargs["seasons"] = {x.strip() for x in seasons if x.strip()}
-                if shipment_groups: query_kwargs["shipment_groups"] = {x.strip() for x in shipment_groups if x.strip()}
-                if style_numbers: query_kwargs["style_numbers"] = {x.strip() for x in style_numbers if x.strip()}
-                query_kwargs["return_whole_order"] = bool(getattr(runtime_controls, "return_whole_order", True))
-                query_kwargs["start_at"], query_kwargs["end_at"] = _rule_date_window(
-                    conditions, query_kwargs["start_at"], query_kwargs["end_at"]
+            queried_orders = _server_query_orders(
+                data_source,
+                database_rule_groups,
+                scan_start,
+                scan_end,
+                runtime_controls,
+            )
+            orders_with_rules, query_errors = queried_orders
+        else:
+            orders_with_rules = [
+                (order, None)
+                for order in _load_orders(
+                    data_source,
+                    {"start_at": scan_start, "end_at": scan_end},
                 )
-                # Query hints are optional for adapters. Keep the original
-                # conditions for the local check so an adapter that ignores a
-                # hint cannot accidentally turn an unmatched order into a
-                # match.
-                local_rule_groups = [group]
-                if stores: query_kwargs["store_names"] = {x.strip().upper() for x in stores if x.strip()}
-        orders = _load_orders(data_source, query_kwargs)
-        LOGGER.info("loaded %d orders; dates=%s", len(orders), sorted({order.sold_at.date().isoformat() for order in orders}))
+            ]
     except Exception as exc:  # noqa: BLE001
         LOGGER.error("failed to load sales orders: %s", exc)
+        query_errors.append(str(exc))
+        orders_with_rules = []
+
+    if not orders_with_rules and query_errors:
         if db_session is not None:
-            db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="failed", success_count=0, failed_count=1, error_summary=str(exc)))
+            db_session.add(JobRun(
+                window_start=service_started_at.isoformat(),
+                window_end=now_func().isoformat(),
+                status="failed",
+                success_count=0,
+                failed_count=len(query_errors),
+                error_summary="; ".join(query_errors),
+            ))
             db_session.commit()
             db_session.close()
         return []
@@ -227,7 +344,8 @@ def run_once(
         for key, value in (store_name_mapping or {}).items()
         if str(key).strip() and str(value).strip()
     }
-    for order in orders:
+    selected_by_order_no: dict[str, tuple[object, FilterResult]] = {}
+    for order, queried_rule in orders_with_rules:
         if normalized_mapping:
             order = replace(order,
                             store_name_display=normalized_mapping.get(
@@ -240,26 +358,27 @@ def run_once(
                             ))
         if order.order_no in seen_order_nos or state_store.has_pushed(order.order_no):
             continue
-        seen_order_nos.add(order.order_no)
 
-        if local_rule_groups is not None:
+        if queried_rule is not None:
             server_filtered_fields = set(order.attributes.get("_ems_server_filtered_fields", ()))
-            matched_group = next(
-                (group for group in local_rule_groups if evaluate_rule_group(
-                    order, group, default_start_date=service_started_at.date(),
-                    server_filtered_fields=server_filtered_fields,
-                )),
-                None,
-            )
-            if matched_group is None:
+            if not evaluate_rule_group(
+                order,
+                queried_rule,
+                default_start_date=service_started_at.date(),
+                server_filtered_fields=server_filtered_fields,
+            ):
                 continue
-            filter_result = FilterResult(matched=True, reason=matched_group.name)
+            filter_result = FilterResult(matched=True, reason=queried_rule.name)
+        elif database_rule_groups is not None:
+            continue
         else:
             filter_result = sales_filter.evaluate(order)
             if not filter_result.matched:
                 continue
+        seen_order_nos.add(order.order_no)
+        selected_by_order_no[order.order_no] = (order, filter_result)
 
-        pending_orders.append((order, filter_result))
+    pending_orders = list(selected_by_order_no.values())
 
     if runtime_controls is not None and not is_within_push_window(now_func(), runtime_controls):
         if db_session is not None:
@@ -319,7 +438,14 @@ def run_once(
 
     state_store.set_last_scan_at(now_func())
     if db_session is not None:
-        db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="failed" if failed_orders else "success", success_count=len(sent_orders), failed_count=failed_orders))
+        db_session.add(JobRun(
+            window_start=service_started_at.isoformat(),
+            window_end=now_func().isoformat(),
+            status="failed" if query_errors or failed_orders else "success",
+            success_count=len(sent_orders),
+            failed_count=len(query_errors) + failed_orders,
+            error_summary="; ".join(query_errors) if query_errors else None,
+        ))
         db_session.commit()
         db_session.close()
     return sent_orders

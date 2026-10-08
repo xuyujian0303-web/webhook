@@ -241,13 +241,13 @@ def test_or_rule_does_not_narrow_document_types_and_can_include_other_types(tmp_
     assert source.kwargs["document_types"] == set()
 
 
-def test_multiple_rules_union_server_document_type_scope(tmp_path) -> None:
+def test_multiple_rules_query_each_rule_independently(tmp_path) -> None:
     class CapturingSource:
         def __init__(self):
-            self.kwargs = None
+            self.calls = []
 
         def load_orders(self, **kwargs):
-            self.kwargs = kwargs
+            self.calls.append(kwargs)
             return []
 
     source = CapturingSource()
@@ -274,7 +274,9 @@ def test_multiple_rules_union_server_document_type_scope(tmp_path) -> None:
         now_func=lambda: datetime(2026, 9, 23, 12),
     )
 
-    assert source.kwargs["document_types"] == {"preorder", "exchange"}
+    assert len(source.calls) == 2
+    assert source.calls[0]["document_types"] == {"preorder"}
+    assert source.calls[1]["document_types"] == {"exchange"}
 
 
 def test_gui_saved_database_conditions_flow_through_orchestrator(tmp_path) -> None:
