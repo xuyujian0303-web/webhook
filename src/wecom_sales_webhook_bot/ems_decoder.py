@@ -76,6 +76,12 @@ def build_ems_image_url(product_code: str) -> str:
     return f"http://giada-erp.redstone.com.cn/giada/images/{code}_01.jpg"
 
 
+def category_from_style_no(style_no: object) -> str | None:
+    """Return the business category encoded by a style code's first two letters."""
+    value = str(style_no or "").strip()
+    return value[:2].upper() if len(value) >= 2 else None
+
+
 def extract_sale_detail_records(payload: bytes) -> list[list[dict[str, object]]]:
     """Split a query response into records using the stable XSG order marker.
 
@@ -265,6 +271,7 @@ def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
                 barcode=barcode,
                 style_no=style_no,
                 unit_price=price,
+                category=category_from_style_no(style_no),
                 image_url=build_ems_image_url(product_code),
                 attributes={"product_code": product_code, "item_id": product_code},
             ))
@@ -378,9 +385,9 @@ def decode_sale_detail(payload: bytes) -> list[SalesOrder]:
                 ),
                 "items": [],
             })["items"].append(SalesLineItem(
-                barcode=str(row.get("barcode", "")), style_no=str(row.get("style_no", row.get("product_code", ""))),
+                barcode=str(row.get("barcode", "")), style_no=(style_no := str(row.get("style_no", row.get("product_code", "")))),
                 unit_price=float(row.get("unit_price", row.get("price", 0))), quantity=int(row.get("quantity", 1)),
-                brand=row.get("brand"), category=row.get("category"), image_url=row.get("image_url"),
+                brand=row.get("brand"), category=category_from_style_no(style_no), image_url=row.get("image_url"),
             ))
         except (KeyError, TypeError, ValueError) as exc:
             raise EmsDecodeError(f"invalid normalized EMS row: {row!r}") from exc

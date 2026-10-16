@@ -485,7 +485,32 @@ class DesktopApp:
             datetime.strptime(value, "%Y-%m-%d")
             self.raw.setdefault("runtime", {})["rescan_start_date"] = value
             self.config_path.write_text(yaml.safe_dump(self.raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
-            self.history_status.set(f"重推起始日期已保存：{value}")
+            message = (
+                f"重推起始日期已保存为 {value}。\n\n"
+                "该日期会在下一次启动的扫描任务中生效。已经运行的持续扫描不会自动读取此项修改。"
+            )
+            self.history_status.set(f"重推起始日期已保存：{value}；重启持续扫描后生效。")
+            if self.schedule_process and self.schedule_process.poll() is None:
+                if messagebox.askyesno(
+                    "日期已保存，需要重启扫描",
+                    message + "\n\n是否现在停止并重新启动本窗口启动的持续扫描？",
+                ):
+                    self.schedule_process.terminate()
+                    try:
+                        self.schedule_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        messagebox.showwarning(
+                            "扫描尚未停止",
+                            "旧扫描进程尚未退出；请稍后手动点击“启动持续扫描”以加载新日期。",
+                        )
+                        return
+                    self.schedule_process = None
+                    self._run_cli("schedule", True)
+            else:
+                messagebox.showinfo(
+                    "日期已保存",
+                    message + "\n\n请在“运行配置”页点击“启动持续扫描”，或点击“立即执行一轮”。",
+                )
         except ValueError:
             messagebox.showerror("日期格式错误", "请输入 YYYY-MM-DD，例如 2026-09-19")
         except Exception as exc:

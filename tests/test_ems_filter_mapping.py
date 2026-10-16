@@ -181,3 +181,10 @@ def test_response_type_code_overrides_amount_sign_for_exchange_and_preorder() ->
     assert preorder.document_type == "preorder"
     assert returned.document_type == "return"
     assert infer_document_type(12600) == "unknown"
+
+
+def test_response_derives_category_from_the_first_two_style_code_characters() -> None:
+    order = decode_sale_detail_orders(_order_payload(3))[0]
+
+    assert order.items[0].style_no == "JACH619CNY0"
+    assert order.items[0].category == "JA"
