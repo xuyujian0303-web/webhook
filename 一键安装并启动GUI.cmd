@@ -11,7 +11,7 @@ if exist "%PYTHON_EXE%" (
     "%PYTHON_EXE%" -c "import sys; assert sys.version_info >= (3, 12)" >nul 2>nul
     if not errorlevel 1 (
         set "VENV_VALID=1"
-        "%PYTHON_EXE%" -c "import wecom_sales_webhook_bot, apscheduler, jinja2, pyodbc, requests, sqlalchemy, yaml" >nul 2>nul
+        "%PYTHON_EXE%" -c "import wecom_sales_webhook_bot, apscheduler, jinja2, pyodbc, requests, sqlalchemy, yaml, PIL, pptx, win32com.client" >nul 2>nul
         if errorlevel 1 set "INSTALL_REQUIRED=1"
     )
 )

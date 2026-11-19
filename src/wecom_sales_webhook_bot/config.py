@@ -6,7 +6,7 @@ from typing import Optional
 
 import yaml
 
-from wecom_sales_webhook_bot.store_mapping import load_store_mapping_file
+from wecom_sales_webhook_bot.store_mapping import load_region_mapping_file, load_store_mapping_file
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,7 @@ class AppConfig:
     api: Optional[ApiConfig]
     data_source: Optional[DataSourceRefConfig]
     store_mapping: dict[str, str]
+    region_mapping: dict[str, str]
 
 
 def load_config(path: Path) -> AppConfig:
@@ -217,6 +218,14 @@ def load_config(path: Path) -> AppConfig:
             if str(key).strip() and str(value).strip()
         }
     )
+    region_mapping = load_region_mapping_file(mapping_file)
+    region_mapping.update(
+        {
+            str(key).strip().upper(): str(value).strip()
+            for key, value in (raw.get("region_mapping") or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+    )
 
     webhook_raw = raw["wecom"].get("webhook_urls", [raw["wecom"].get("webhook_url", "")])
     if isinstance(webhook_raw, str):
@@ -239,4 +248,5 @@ def load_config(path: Path) -> AppConfig:
         api=api_cfg,
         data_source=data_source_cfg,
         store_mapping=store_mapping,
+        region_mapping=region_mapping,
     )

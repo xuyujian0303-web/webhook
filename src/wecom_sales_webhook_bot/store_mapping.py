@@ -5,28 +5,48 @@ from zipfile import ZipFile
 from xml.etree import ElementTree
 
 
-def load_store_mapping_file(path: str | Path | None) -> dict[str, str]:
-    """Load organization-code -> display-name mappings from YAML."""
+def _load_organization_mapping(path: str | Path | None) -> tuple[dict[str, str], dict[str, str]]:
     if not path:
-        return {}
+        return {}, {}
     path = Path(path)
     if not path.exists():
-        return {}
+        return {}, {}
     try:
         import yaml
-
         payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, UnicodeError, ValueError):
-        return {}
+        return {}, {}
     if not isinstance(payload, dict):
-        return {}
-    if isinstance(payload.get("store_mapping"), dict):
-        payload = payload["store_mapping"]
-    return {
-        str(key).strip().upper(): str(value).strip()
-        for key, value in payload.items()
-        if str(key).strip() and str(value).strip()
-    }
+        return {}, {}
+    records = payload.get("organization_mapping", payload.get("store_mapping", payload))
+    if not isinstance(records, dict):
+        return {}, {}
+    store_names: dict[str, str] = {}
+    regions: dict[str, str] = {}
+    for key, value in records.items():
+        code = str(key).strip().upper()
+        if not code:
+            continue
+        if isinstance(value, dict):
+            name = value.get("store_name", value.get("shop_name", value.get("name", "")))
+            region = value.get("region", "")
+            if str(name).strip():
+                store_names[code] = str(name).strip()
+            if str(region).strip():
+                regions[code] = str(region).strip()
+        elif str(value).strip():
+            store_names[code] = str(value).strip()
+    return store_names, regions
+
+
+def load_store_mapping_file(path: str | Path | None) -> dict[str, str]:
+    """Load organization-code -> Chinese store-name mappings from YAML."""
+    return _load_organization_mapping(path)[0]
+
+
+def load_region_mapping_file(path: str | Path | None) -> dict[str, str]:
+    """Load organization-code -> region mappings from the shared YAML file."""
+    return _load_organization_mapping(path)[1]
 
 
 def load_store_name_mapping(path: str | Path | None) -> dict[str, str]:

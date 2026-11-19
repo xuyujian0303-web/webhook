@@ -13,6 +13,29 @@ wecom:
   timeout_seconds: 5
   retry_times: 2
 
+celebration:
+  enabled: false
+  threshold: "100000"
+  template_path: ./templates/converted/捷报模板.svg
+  slide_number: 1
+  output_dir: ./data/celebrations
+  content_fields:
+    - order_no
+    - sold_at
+    - document_type
+    - store_name_display
+    - store_region
+    - performance_org_display
+    - performance_region
+    - region
+    - salesperson
+    - total_amount
+    - currency
+    - customer_type
+    - card_no
+    - items
+  # GUI 会保存所选 Webhook 地址的哈希，不会在喜报设置区重复保存地址。
+
 runtime:
   scan_interval_seconds: 600
   max_images_per_message: 8

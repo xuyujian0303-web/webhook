@@ -11,11 +11,20 @@ configPath = projectRoot & "\config.local.yaml"
 shell.CurrentDirectory = projectRoot
 
 If fso.FileExists(pythonwPath) And fso.FileExists(configPath) Then
-    shell.Environment("Process")("PYTHONPATH") = projectRoot & "\src"
-    command = Chr(34) & pythonwPath & Chr(34) & _
-        " -m wecom_sales_webhook_bot.cli desktop-gui --config " & _
-        Chr(34) & configPath & Chr(34)
-    shell.Run command, 0, False
+    command = Chr(34) & projectRoot & "\.venv\Scripts\python.exe" & Chr(34) & _
+        " -c " & Chr(34) & "import PIL, pptx, win32com.client" & Chr(34)
+    If shell.Run(command, 0, True) = 0 Then
+        shell.Environment("Process")("PYTHONPATH") = projectRoot & "\src"
+        command = Chr(34) & pythonwPath & Chr(34) & _
+            " -m wecom_sales_webhook_bot.cli desktop-gui --config " & _
+            Chr(34) & configPath & Chr(34)
+        shell.Run command, 0, False
+    Else
+        command = "cmd.exe /c " & Chr(34) & _
+            Chr(34) & projectRoot & "\一键安装并启动GUI.cmd" & Chr(34) & _
+            Chr(34)
+        shell.Run command, 1, False
+    End If
 Else
     command = "cmd.exe /c " & Chr(34) & _
         Chr(34) & projectRoot & "\一键安装并启动GUI.cmd" & Chr(34) & _

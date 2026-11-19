@@ -27,6 +27,8 @@ from wecom_sales_webhook_bot.sqlserver_source import SqlServerSalesDataSource
 from wecom_sales_webhook_bot.ems_source import EmsSalesDataSource
 from wecom_sales_webhook_bot.state_store import PushStateStore
 from wecom_sales_webhook_bot.wecom_client import MultiWeComWebhookClient, WeComWebhookClient
+from wecom_sales_webhook_bot.celebration import DEFAULT_CONTENT_FIELDS, webhook_target_id
+from wecom_sales_webhook_bot.single_instance import acquire_instance
 
 
 REQUIRED_CSV_FIELD_MAPPING_KEYS = (
@@ -110,11 +112,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     if args.command == "desktop-gui":
-        from wecom_sales_webhook_bot.desktop_gui import DesktopApp
-        import tkinter as tk
-        root = tk.Tk()
-        DesktopApp(root, Path(args.config).resolve())
-        root.mainloop()
+        from wecom_sales_webhook_bot.desktop_gui import launch_gui
+        launch_gui(Path(args.config).resolve())
         return
     config = load_config(Path(args.config))
 
@@ -135,6 +134,7 @@ def main() -> None:
 
     config_path = Path(args.config).resolve()
     base_dir = config_path.parent
+    raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     image_map_csv = None
     if config.image_service is not None and config.image_service.image_map_csv is not None:
         image_map_csv = (base_dir / config.image_service.image_map_csv).resolve()
@@ -156,6 +156,7 @@ def main() -> None:
     # the legacy runtime toggle: a saved GUI template may request display
     # names directly.
     store_name_mapping = config.store_mapping
+    region_mapping = config.region_mapping
     sales_filter = None
     database_rule_groups = None
     active_template_body = None
@@ -182,10 +183,55 @@ def main() -> None:
             base_url=f"http://{config.image_service.host}:{config.image_service.port}",
             image_map_csv=image_map_csv,
         )
-    webhook_client = MultiWeComWebhookClient([
-        WeComWebhookClient(webhook_url=url, timeout_seconds=config.wecom.timeout_seconds, retry_times=config.wecom.retry_times)
+    webhook_clients = [
+        WeComWebhookClient(webhook_url=url, timeout_seconds=config.wecom.timeout_seconds,
+                           retry_times=config.wecom.retry_times)
         for url in config.wecom.webhook_urls
-    ])
+    ]
+    webhook_client = MultiWeComWebhookClient(webhook_clients)
+    celebration_raw = raw_config.get("celebration") or {}
+    celebration_settings = None
+    celebration_targets = None
+    if celebration_raw.get("enabled"):
+        from decimal import Decimal, InvalidOperation
+
+        try:
+            threshold = Decimal(str(celebration_raw.get("threshold", "100000")))
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("喜报金额门槛必须是有效数字") from exc
+        if not threshold.is_finite() or threshold < 0:
+            raise ValueError("喜报金额门槛必须是大于等于零的有限数值")
+        template_path = Path(str(celebration_raw.get("template_path", "./templates/converted/捷报模板.svg")))
+        output_dir = Path(str(celebration_raw.get("output_dir", "./data/celebrations")))
+        if not template_path.is_absolute():
+            template_path = base_dir / template_path
+        if not output_dir.is_absolute():
+            output_dir = base_dir / output_dir
+        if not template_path.is_file():
+            raise ValueError(f"喜报模板不存在：{template_path}")
+        selected_ids = celebration_raw.get("webhook_targets")
+        if selected_ids is None:
+            selected_ids = [webhook_target_id(url) for url in config.wecom.webhook_urls]
+        selected_ids = {str(value) for value in selected_ids}
+        all_targets = {
+            webhook_target_id(url): client
+            for url, client in zip(config.wecom.webhook_urls, webhook_clients)
+        }
+        celebration_targets = {key: all_targets[key] for key in selected_ids if key in all_targets}
+        if not celebration_targets:
+            raise ValueError("启用喜报后，至少选择一个有效的Webhook接收群")
+        content_fields = celebration_raw.get("content_fields", list(DEFAULT_CONTENT_FIELDS))
+        if set(content_fields) - set(DEFAULT_CONTENT_FIELDS):
+            raise ValueError("喜报模板字段配置中包含无法识别的字段")
+        celebration_settings = {
+            "enabled": True,
+            "threshold": str(threshold),
+            "template_path": template_path,
+            "output_dir": output_dir,
+            "slide_number": int(celebration_raw.get("slide_number", 1)),
+            "content_fields": list(content_fields),
+            "region_mapping": region_mapping,
+        }
 
     service_started_at = datetime.now()
     if args.command in ("run-once", "schedule"):
@@ -213,10 +259,16 @@ def main() -> None:
             service_started_at=service_started_at,
             database_url=config.backend.database_url if config.backend is not None else None,
             store_name_mapping=store_name_mapping,
+            celebration_settings=celebration_settings,
+            celebration_targets=celebration_targets,
         )
         return
 
     if args.command == "schedule":
+        schedule_guard = acquire_instance("schedule", str(Path(args.config).resolve()))
+        if not schedule_guard.acquired:
+            print(f"持续扫描已经在运行，跳过第二个实例: {Path(args.config).resolve()}")
+            return
         lock_path = Path(config.runtime.state_file).with_name("schedule.lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_handle = lock_path.open("a+", encoding="ascii")
@@ -261,6 +313,8 @@ def main() -> None:
                 service_started_at=service_started_at,
                 database_url=config.backend.database_url if config.backend is not None else None,
                 store_name_mapping=store_name_mapping,
+                celebration_settings=celebration_settings,
+                celebration_targets=celebration_targets,
             )
             time.sleep(runtime_controls.scan_interval_seconds)
 

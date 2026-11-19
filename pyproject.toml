@@ -14,10 +14,14 @@ dependencies = [
   "requests>=2.32.0",
   "pyodbc>=5.1.0",
   "Jinja2>=3.1.4",
+  "python-pptx>=1.0.2",
+  "Pillow>=10.4.0",
+  "pywin32>=306; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.1.0"]
+build = ["pyinstaller>=6.10.0; platform_system == 'Windows'"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

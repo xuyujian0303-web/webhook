@@ -1,4 +1,4 @@
-﻿"""Browser-free local control panel for the sales push bot."""
+"""Browser-free local control panel for the sales push bot."""
 from __future__ import annotations
 
 import argparse
@@ -9,11 +9,14 @@ import sys
 import tkinter as tk
 from datetime import datetime, timedelta
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import yaml
 
 from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
+from wecom_sales_webhook_bot.celebration import (
+    CONTENT_FIELD_LABELS, DEFAULT_CONTENT_FIELDS, generate_preview_image, webhook_target_id,
+)
 from wecom_sales_webhook_bot.message_template_engine import TemplateRenderError, render_message_template
 from wecom_sales_webhook_bot.message_template_service import (
     DEFAULT_TEMPLATE_NAME, TemplateDeleteError, activate_message_template,
@@ -53,18 +56,18 @@ def _operator_choice(operator: str) -> str:
 
 def _operator_choices(field_name: str) -> list[str]:
     return [_operator_choice(operator) for operator in operators_for_field(field_name)]
-EMS_SERVER_FIELDS = {"store_name", "total_amount", "document_type", "unit_price", "discount", "season", "shipment_group"}
+EMS_SERVER_FIELDS = {"store_name", "total_amount", "document_type", "season", "shipment_group"}
 CONDITION_GROUP_LABELS = {"all": "全部满足", "any": "任一满足"}
 CONDITION_GROUP_LABEL_TO_KEY = {label: key for key, label in CONDITION_GROUP_LABELS.items()}
 
 def _field_choice(key: str, label: str) -> str:
     location = (
-        "EMS查询参数/本地校验" if key == "style_no"
-        else "EMS服务器筛选" if key in EMS_SERVER_FIELDS
+        "EMS服务器查询" if key in {"season", "shipment_group"}
+        else "EMS查询预筛/本地复核" if key in EMS_SERVER_FIELDS
         else "下载后本地筛选"
     )
     if key == "document_type":
-        label = f"{label}（销售/换货/退货/预购；EMS编码 0/2/1/3）"
+        label = f"{label}（销售/换货/退货/预购；EMS编码 0/1/2/3）"
     return f"{label} [{key}] [{location}]"
 
 FIELD_CHOICES = [_field_choice(key, label) for key, label, _ in selectable_fields()]
@@ -72,7 +75,7 @@ FIELD_FROM_CHOICE = {_field_choice(key, label): key for key, label, _ in selecta
 FIELD_CHOICE_BY_KEY = {key: _field_choice(key, label) for key, label, _ in selectable_fields()}
 FIELD_DROPDOWN_WIDTH = max((len(choice) for choice in FIELD_CHOICES), default=52)
 
-LEGACY_DOCUMENT_TYPE_CODES = {"0": "sale", "1": "return", "2": "exchange", "3": "preorder"}
+LEGACY_DOCUMENT_TYPE_CODES = {"0": "sale", "1": "exchange", "2": "return", "3": "preorder"}
 
 
 def build_template_reference_text() -> str:
@@ -135,6 +138,7 @@ class DesktopApp:
         self._build_source_tab(tabs)
         self._build_rules_tab(tabs)
         self._build_templates_tab(tabs)
+        self._build_celebration_tab(tabs)
         self._build_history_tab(tabs)
 
     def _database_url(self) -> str:
@@ -169,7 +173,7 @@ class DesktopApp:
             ttk.Entry(page, textvariable=self.runtime_vars[key], width=28).grid(row=row, column=1, sticky="w", padx=8)
         ttk.Checkbutton(page, text="演练模式（只读取和筛选，不实际推送）", variable=self.dry_run).grid(row=5, column=0, columnspan=2, sticky="w", pady=10)
         ttk.Checkbutton(page, text="返回包含筛选条件的整个销售单", variable=self.return_whole_order).grid(row=6, column=0, columnspan=2, sticky="w", pady=4)
-        buttons = ttk.Frame(page); buttons.grid(row=7, column=0, columnspan=2, sticky="w", pady=10)
+        buttons = ttk.Frame(page); buttons.grid(row=8, column=0, columnspan=2, sticky="w", pady=10)
         ttk.Button(buttons, text="保存运行配置", command=self.save_config).pack(side="left")
         ttk.Button(buttons, text="立即执行一轮", command=lambda: self._run_cli("run-once")).pack(side="left", padx=8)
         ttk.Button(buttons, text="启动持续扫描", command=lambda: self._run_cli("schedule", True)).pack(side="left")
@@ -315,14 +319,18 @@ class DesktopApp:
             op_box.pack(side="left", padx=4, fill="x", expand=True)
             entry = ttk.Entry(line, width=34); entry.insert(0, value); entry.pack(side="left", padx=4, fill="x", expand=True)
             row = {"line": line, "group": group_var, "field": field_var, "operator": operator_var, "entry": entry}
-            def update(*_):
+            def update(*_, initial=False):
                 selected_key = FIELD_FROM_CHOICE.get(field_var.get(), "order_no")
                 allowed = operators_for_field(selected_key)
                 choices = _operator_choices(selected_key)
                 op_box["values"] = choices
-                if OPERATOR_CHOICE_TO_KEY.get(operator_var.get()) not in allowed: operator_var.set(choices[0])
+                if OPERATOR_CHOICE_TO_KEY.get(operator_var.get()) not in allowed:
+                    if initial:
+                        op_box["values"] = [operator_var.get(), *choices]
+                    else:
+                        operator_var.set(choices[0])
             field_var.trace_add("write", update)
-            update()
+            update(initial=True)
             ttk.Button(line, text="删除", command=lambda: (line.destroy(), rows.remove(row))).pack(side="left"); rows.append(row)
         for c in conditions or []:
             label = FIELD_LABELS.get(c.field_name, c.field_name); choice = FIELD_CHOICE_BY_KEY.get(c.field_name, FIELD_CHOICES[0])
@@ -333,7 +341,7 @@ class DesktopApp:
         ttk.Button(dialog, text="增加条件", command=add_row).grid(row=3, column=0, sticky="w", padx=8, pady=12)
         ttk.Label(
             dialog,
-            text="日期筛选示例：选择“销售日期” + “日期区间（YYYY-MM-DD,YYYY-MM-DD）”，填写 2026-09-18, 表示从 2026-09-18 起（含当天）；填写 2026-09-18,2026-09-30 表示闭区间。",
+            text="日期筛选示例：选择“销售日期” + “日期区间（YYYY-MM-DD,YYYY-MM-DD）”，填写 2026-09-18, 表示从 2026-09-18 起（含当天）；填写 2026-09-18,2026-09-30 表示闭区间。季号/出货组别填写完整代码，支持逗号分隔多个值。",
             wraplength=780,
         ).grid(row=4, column=0, columnspan=4, sticky="w", padx=8)
         def save():
@@ -341,8 +349,13 @@ class DesktopApp:
             payloads = []
             for row in rows:
                 op, value = OPERATOR_CHOICE_TO_KEY[row["operator"].get()], row["entry"].get().strip()
-                if op not in {"is_empty", "is_not_empty"} and not value: continue
                 field = FIELD_FROM_CHOICE[row["field"].get()]
+                if op not in operators_for_field(field):
+                    messagebox.showerror("无法保存", f"{FIELD_LABELS.get(field, field)}不支持此操作符，请重新选择。")
+                    return
+                if op not in {"is_empty", "is_not_empty"} and not value:
+                    messagebox.showerror("无法保存", f"请填写{FIELD_LABELS.get(field, field)}的条件值，或删除这条条件。")
+                    return
                 payloads.append((CONDITION_GROUP_LABEL_TO_KEY.get(row["group"].get(), "all"), field, op, value))
             if not payloads: messagebox.showerror("无法保存", "至少填写一条有效条件，避免无条件推送全部销售单。"); return
             try:
@@ -448,6 +461,92 @@ class DesktopApp:
             dialog = tk.Toplevel(self.root); dialog.title("模板预览"); box = tk.Text(dialog, width=100, height=28); box.pack(fill="both", expand=True, padx=10, pady=10); box.insert("1.0", text); box.configure(state="disabled")
         except TemplateRenderError as exc: messagebox.showerror("模板错误", str(exc))
 
+    def _build_celebration_tab(self, tabs) -> None:
+        page = ttk.Frame(tabs, padding=16); tabs.add(page, text="喜报")
+        settings = self.raw.get("celebration") or {}
+        self.celebration_enabled = tk.BooleanVar(value=bool(settings.get("enabled", False)))
+        self.celebration_threshold = tk.StringVar(value=str(settings.get("threshold", "100000")))
+        self.celebration_template = tk.StringVar(value=str(settings.get("template_path", "./templates/converted/捷报模板.svg")))
+        if not settings.get("template_path"):
+            self.celebration_template.set("./templates/converted/捷报模板.svg")
+        self.celebration_slide = tk.StringVar(value=str(settings.get("slide_number", 1)))
+        self.celebration_output = tk.StringVar(value=str(settings.get("output_dir", "./data/celebrations")))
+        ttk.Checkbutton(page, text="启用喜报推送（仅成功晒单且单据金额严格大于门槛）", variable=self.celebration_enabled).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(page, text="金额门槛").grid(row=1, column=0, sticky="w", pady=5)
+        ttk.Entry(page, textvariable=self.celebration_threshold, width=20).grid(row=1, column=1, sticky="w", padx=8)
+        ttk.Label(page, text="金额等于门槛时不生成喜报；退货负数及零金额换货不会触发。", wraplength=720).grid(row=1, column=2, sticky="w")
+        ttk.Label(page, text="喜报模板（SVG/HTML/PPTX）").grid(row=2, column=0, sticky="w", pady=5)
+        ttk.Entry(page, textvariable=self.celebration_template, width=68).grid(row=2, column=1, sticky="ew", padx=8)
+        ttk.Button(page, text="浏览…", command=self._browse_celebration_template).grid(row=2, column=2, sticky="w")
+        ttk.Label(page, text="幻灯片页码").grid(row=3, column=0, sticky="w", pady=5)
+        ttk.Entry(page, textvariable=self.celebration_slide, width=10).grid(row=3, column=1, sticky="w", padx=8)
+        ttk.Label(page, text="图片保存目录").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Entry(page, textvariable=self.celebration_output, width=68).grid(row=4, column=1, sticky="ew", padx=8)
+        ttk.Button(page, text="浏览…", command=self._browse_celebration_output).grid(row=4, column=2, sticky="w")
+        ttk.Label(page, text="模板变量：{{ store_name_display }} 为销售店铺中文名，{{ performance_org_display }} 为业绩机构对应店铺名；{{ store_region }}、{{ performance_region }} 分别读取两机构区域，{{ region }} 优先取业绩机构区域。", wraplength=850).grid(row=5, column=0, columnspan=3, sticky="w", pady=6)
+
+        field_frame = ttk.LabelFrame(page, text="图片内容字段", padding=10)
+        field_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(12, 8))
+        selected_fields = set(settings.get("content_fields", DEFAULT_CONTENT_FIELDS))
+        self.celebration_field_vars = {}
+        for index, key in enumerate(DEFAULT_CONTENT_FIELDS):
+            var = tk.BooleanVar(value=key in selected_fields)
+            self.celebration_field_vars[key] = var
+            ttk.Checkbutton(field_frame, text=CONTENT_FIELD_LABELS[key], variable=var).grid(row=index // 4, column=index % 4, sticky="w", padx=8, pady=3)
+
+        webhook_frame = ttk.LabelFrame(page, text="推送到企业微信群", padding=10)
+        webhook_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=8)
+        urls = self._configured_webhook_urls()
+        selected_targets = settings.get("webhook_targets")
+        if selected_targets is None:
+            selected_targets = [webhook_target_id(url) for url in urls]
+        selected_targets = {str(value) for value in selected_targets}
+        self.celebration_target_vars = {}
+        for index, url in enumerate(urls):
+            target_id = webhook_target_id(url)
+            var = tk.BooleanVar(value=target_id in selected_targets)
+            self.celebration_target_vars[target_id] = var
+            ttk.Checkbutton(webhook_frame, text=f"Webhook {index + 1}", variable=var).grid(row=index // 4, column=index % 4, sticky="w", padx=8, pady=3)
+
+        buttons = ttk.Frame(page); buttons.grid(row=7, column=0, columnspan=3, sticky="w", pady=10)
+        ttk.Button(buttons, text="保存喜报设置", command=self.save_config).pack(side="left")
+        ttk.Button(buttons, text="生成预览图片", command=self._preview_celebration).pack(side="left", padx=8)
+        self.celebration_status = tk.StringVar(value="")
+        ttk.Label(page, textvariable=self.celebration_status, wraplength=850).grid(row=8, column=0, columnspan=3, sticky="w", pady=4)
+        page.columnconfigure(1, weight=1)
+
+    def _configured_webhook_urls(self) -> list[str]:
+        wecom = self.raw.get("wecom") or {}
+        urls = wecom.get("webhook_urls") or [wecom.get("webhook_url", "")]
+        return [str(url).strip() for url in urls if str(url).strip()]
+
+    def _browse_celebration_template(self) -> None:
+        path = filedialog.askopenfilename(filetypes=(("SVG/HTML", "*.svg *.html *.htm"), ("PowerPoint", "*.pptx"), ("All files", "*.*")))
+        if path:
+            self.celebration_template.set(path)
+
+    def _browse_celebration_output(self) -> None:
+        path = filedialog.askdirectory()
+        if path:
+            self.celebration_output.set(path)
+
+    def _preview_celebration(self) -> None:
+        try:
+            template = Path(self.celebration_template.get().strip())
+            output = Path(self.celebration_output.get().strip())
+            if not template.is_absolute(): template = (self.config_path.parent / template).resolve()
+            if not output.is_absolute(): output = (self.config_path.parent / output).resolve()
+            slide = int(self.celebration_slide.get())
+            if slide < 1: raise ValueError("幻灯片页码必须大于 0")
+            fields = [key for key, var in self.celebration_field_vars.items() if var.get()]
+            image_path = generate_preview_image(template, output, slide, fields)
+            self.celebration_status.set(f"预览已生成：{image_path}")
+            if os.name == "nt": os.startfile(image_path)
+            else: messagebox.showinfo("喜报预览", f"预览图片已生成：\n{image_path}")
+        except Exception as exc:
+            self.celebration_status.set(f"预览失败：{exc}")
+            messagebox.showerror("喜报预览失败", str(exc))
+
     def _build_history_tab(self, tabs) -> None:
         page = ttk.Frame(tabs, padding=12); tabs.add(page, text="推送记录与状态")
         controls = ttk.Frame(page); controls.pack(fill="x")
@@ -462,8 +561,8 @@ class DesktopApp:
         ttk.Button(date_bar, text="保存日期", command=self.save_rescan_start_date).pack(side="left", padx=4)
         ttk.Label(date_bar, text="删除记录后会从此日期重新读取；删除后点击“立即执行一轮”才会重新推送。清空全部前请务必设置合适的起始日期。", wraplength=650).pack(side="left", padx=8)
         self.history_status = tk.StringVar(value="点击刷新以查看最近执行情况"); ttk.Label(page, textvariable=self.history_status, wraplength=900).pack(anchor="w", pady=10)
-        columns = ("time", "order", "store", "amount", "rule", "status", "error"); self.record_tree = ttk.Treeview(page, columns=columns, show="headings", height=18)
-        for key, label, width in (("time", "时间", 135), ("order", "销售单号", 150), ("store", "销售机构", 100), ("amount", "金额", 80), ("rule", "规则", 130), ("status", "状态", 80), ("error", "错误", 260)): self.record_tree.heading(key, text=label); self.record_tree.column(key, width=width, anchor="w")
+        columns = ("time", "order", "store", "amount", "rule", "status", "celebration", "error"); self.record_tree = ttk.Treeview(page, columns=columns, show="headings", height=18)
+        for key, label, width in (("time", "时间", 135), ("order", "销售单号", 150), ("store", "销售机构", 100), ("amount", "金额", 80), ("rule", "规则", 130), ("status", "状态", 80), ("celebration", "喜报", 55), ("error", "错误", 260)): self.record_tree.heading(key, text=label); self.record_tree.column(key, width=width, anchor="w")
         self.record_tree.pack(fill="both", expand=True); self.refresh_history()
     def refresh_history(self) -> None:
         self.record_tree.delete(*self.record_tree.get_children())
@@ -471,8 +570,21 @@ class DesktopApp:
             with self._factory() as session:
                 latest = session.query(JobRun).order_by(JobRun.created_at.desc()).first(); rows = session.query(PushRecord).order_by(PushRecord.created_at.desc()).limit(50).all()
                 self.history_status.set(f"最近扫描：{(latest.created_at + timedelta(hours=8)):%Y-%m-%d %H:%M:%S}；状态 {latest.status}；成功 {latest.success_count}；失败 {latest.failed_count}。" if latest else "尚未执行扫描任务。")
-                for row in rows: self.record_tree.insert("", "end", iid=str(row.id), values=(row.created_at + timedelta(hours=8), row.order_no, row.store_name, f"{row.total_amount:.2f}", row.rule_name, row.status, row.error_message or ""))
+                celebration_sent = self._celebration_sent_orders()
+                for row in rows: self.record_tree.insert("", "end", iid=str(row.id), values=(row.created_at + timedelta(hours=8), row.order_no, row.store_name, f"{row.total_amount:.2f}", row.rule_name, row.status, "✓" if row.order_no in celebration_sent else "", row.error_message or ""))
         except Exception as exc: self.history_status.set(f"读取记录失败：{exc}")
+
+    def _celebration_sent_orders(self) -> set[str]:
+        state_path = self._state_file().with_name("celebration-state.json")
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return set()
+        return {
+            order_no
+            for order_no, record in (payload.get("orders") or {}).items()
+            if (record.get("sent_targets") or {})
+        }
 
     def _state_file(self) -> Path:
         configured = str((self.raw.get("runtime") or {}).get("state_file", "./var/push-state.json"))
@@ -572,14 +684,44 @@ class DesktopApp:
             urls = [x.strip() for x in self.webhook_text.get("1.0", "end").splitlines() if x.strip()]
             if not urls: raise ValueError("至少填写一个 Webhook 地址")
             wecom = self.raw.setdefault("wecom", {}); wecom.pop("webhook_url", None); wecom["webhook_urls"] = urls
+            from decimal import Decimal, InvalidOperation
+            celebration = self.raw.setdefault("celebration", {})
+            try:
+                threshold = Decimal(self.celebration_threshold.get().strip())
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError("喜报金额门槛必须为有效数字") from exc
+            if not threshold.is_finite() or threshold < 0:
+                raise ValueError("喜报金额门槛必须为大于或等于 0 的有限数值")
+            slide_number = int(self.celebration_slide.get())
+            if slide_number < 1:
+                raise ValueError("幻灯片页码必须大于 0")
+            template_path = self.celebration_template.get().strip()
+            output_dir = self.celebration_output.get().strip()
+            if not template_path or not output_dir:
+                raise ValueError("请填写 PPTX 模板和图片保存目录")
+            selected_targets = [target_id for target_id, var in self.celebration_target_vars.items() if var.get()]
+            if self.celebration_enabled.get() and not selected_targets:
+                raise ValueError("启用喜报时至少选择一个企业微信群")
+            celebration.update({
+                "enabled": self.celebration_enabled.get(),
+                "threshold": str(threshold),
+                "template_path": template_path,
+                "slide_number": slide_number,
+                "output_dir": output_dir,
+                "content_fields": [key for key, var in self.celebration_field_vars.items() if var.get()],
+                "webhook_targets": selected_targets,
+            })
             self.config_path.write_text(yaml.safe_dump(self.raw, allow_unicode=True, sort_keys=False), encoding="utf-8"); self.status.set("配置已保存；持续扫描需重启后加载新配置。"); return True
         except Exception as exc: messagebox.showerror("保存失败", str(exc)); return False
     def _run_cli(self, command: str, keep: bool = False) -> None:
         if not self.save_config(): return
         venv_python = self.config_path.parent / ".venv" / "Scripts" / "python.exe"
         python_executable = str(venv_python) if venv_python.exists() else sys.executable
-        args = [python_executable, "-u", "-m", "wecom_sales_webhook_bot.cli", command, "--config", str(self.config_path)]
-        env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+        if getattr(sys, "frozen", False):
+            args = [sys.executable, command, "--config", str(self.config_path)]
+        else:
+            args = [python_executable, "-u", "-m", "wecom_sales_webhook_bot.cli", command, "--config", str(self.config_path)]
+        env = {**os.environ, "PYTHONPATH": str(self.config_path.parent / "src")}
         if keep:
             if self.schedule_process and self.schedule_process.poll() is None: self.status.set("持续扫描已经在运行。"); return
             self.schedule_process = subprocess.Popen(args, cwd=self.config_path.parent, env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)); self.status.set("持续扫描已启动。")
@@ -592,9 +734,22 @@ class DesktopApp:
         self.root.destroy()
 
 
+def launch_gui(config_path: Path) -> None:
+    from wecom_sales_webhook_bot.single_instance import acquire_instance
+    instance_guard = acquire_instance("desktop_gui", str(Path(config_path).resolve()))
+    if not instance_guard.acquired:
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, "该配置的 GUI 已经在运行。", "企业微信销售推送", 0x40)
+        except Exception:  # noqa: BLE001
+            print("该配置的 GUI 已经在运行。")
+        return
+    root = tk.Tk(); DesktopApp(root, Path(config_path).resolve()); root.mainloop()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(); parser.add_argument("--config", required=True); args = parser.parse_args()
-    root = tk.Tk(); DesktopApp(root, Path(args.config).resolve()); root.mainloop()
+    launch_gui(Path(args.config).resolve())
 
 
 if __name__ == "__main__":

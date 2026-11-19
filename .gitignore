@@ -41,3 +41,15 @@ captures/
 
 .venv/
 setup.log
+data/celebrations/
+
+# Local test and Windows packaging outputs
+.pytest-run-*/
+.pytest-tmp*/
+*.egg-info/
+build/
+dist/
+*.spec
+*.exe
+ems_config.*.backup
+smoke-state.json

@@ -8,6 +8,7 @@ from wecom_sales_webhook_bot.db import create_session_factory, initialize_databa
 from wecom_sales_webhook_bot.message_template_service import load_or_initialize_message_template
 from wecom_sales_webhook_bot.rule_models import GlobalSetting, RuleCondition, RuleGroup
 from wecom_sales_webhook_bot.rule_service import RuleConditionDTO, RuleGroupDTO
+from wecom_sales_webhook_bot.sales_fields import FIELD_KINDS, canonical_field_name
 
 RUNTIME_SETTINGS_KEY = "runtime_settings"
 
@@ -47,11 +48,13 @@ def is_within_push_window(now: datetime, controls: RuntimeControls) -> bool:
 
 
 def _parse_condition_value(condition: RuleCondition):
-    if condition.field_name in {"total_amount", "unit_price", "discount", "actual_discount"} and condition.operator in {"equals", "gt", "gte", "lt", "lte"}:
-        return float(condition.value_json)
-    if condition.field_name == "sold_at" and condition.operator in {"between_time", "date_range", "date_between"}:
-        start_value, end_value = condition.value_json.split(",", maxsplit=1)
-        return [start_value.strip(), end_value.strip()]
+    field = canonical_field_name(condition.field_name)
+    if FIELD_KINDS.get(field) == "datetime" and condition.operator in {"between_time", "date_range", "date_between"}:
+        bounds = (condition.value_json.split(",", maxsplit=1) + [""])[:2]
+        return [value.strip() for value in bounds]
+    # Keep the user's numeric precision and identifier text intact. The rule
+    # evaluator validates numbers; malformed input must not break loading all
+    # other enabled rules.
     return [item.strip() for item in condition.value_json.split(",") if item.strip()]
 
 

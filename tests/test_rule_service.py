@@ -114,6 +114,29 @@ def test_numeric_rule_operators_cover_boundaries_and_invalid_values() -> None:
     )
 
 
+def test_numeric_equals_normalizes_integer_and_decimal_text() -> None:
+    order = SalesOrder(
+        order_no="SO-decimal",
+        sold_at=datetime(2026, 8, 24, 10, 0),
+        store_name="G621",
+        total_amount=25000.0,
+        items=[SalesLineItem(barcode="b1", style_no="A1", unit_price=12500.0)],
+    )
+
+    assert evaluate_rule_group(
+        order,
+        RuleGroupDTO("amount", conditions=[RuleConditionDTO("total_amount", "equals", "25000")]),
+    )
+    assert evaluate_rule_group(
+        order,
+        RuleGroupDTO("price", conditions=[RuleConditionDTO("unit_price", "equals", "12500")]),
+    )
+    assert not evaluate_rule_group(
+        order,
+        RuleGroupDTO("amount", conditions=[RuleConditionDTO("total_amount", "not_equals", "25000")]),
+    )
+
+
 def test_all_text_and_item_filters_are_evaluated() -> None:
     order = SalesOrder(
         order_no="SO-ABC-001",
@@ -215,3 +238,11 @@ def test_not_equals_accepts_multiple_excluded_values() -> None:
         conditions=[RuleConditionDTO("store_name", "not_equals", "G88T,G88D,G89P")],
     )
     assert not evaluate_rule_group(order, rule)
+
+
+def test_correct_exchange_return_codes_and_chinese_field_alias() -> None:
+    assert normalize_document_type("1") == "exchange"
+    assert normalize_document_type("2") == "return"
+    order = SalesOrder("XSGTEST", datetime(2026, 11, 13), "G00J", 0, document_type="exchange")
+    assert evaluate_rule_group(order, RuleGroupDTO("换货", conditions=[RuleConditionDTO("销售类型", "equals", "1")]))
+    assert not evaluate_rule_group(order, RuleGroupDTO("退货", conditions=[RuleConditionDTO("document_type", "equals", "2")]))

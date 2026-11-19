@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 import inspect
+import math
 import time
 from dataclasses import replace
 from datetime import date, datetime
 
 from wecom_sales_webhook_bot.filters import FilterResult
+from wecom_sales_webhook_bot.celebration_memory import generate_celebration_image_memory
+from wecom_sales_webhook_bot.celebration_delivery import deliver_celebrations
 from wecom_sales_webhook_bot.message_builder import build_markdown_v2_message
-from wecom_sales_webhook_bot.rule_service import evaluate_rule_group, normalize_document_type
+from wecom_sales_webhook_bot.rule_service import evaluate_rule_group, normalize_document_type, project_rule_items
+from wecom_sales_webhook_bot.sales_fields import canonical_field_name
 from wecom_sales_webhook_bot.runtime_settings import RuntimeControls, is_within_push_window, load_runtime_settings
 from wecom_sales_webhook_bot.db import create_session_factory, initialize_database
 from wecom_sales_webhook_bot.rule_models import JobRun, PushRecord
@@ -34,17 +38,29 @@ def _numeric_bounds(conditions, field_name: str) -> tuple[float | None, float | 
         values = _condition_values(condition)
         try:
             if condition.operator == "between" and len(values) == 2:
-                low, high = float(values[0]), float(values[1])
+                a, b = sorted((float(values[0]), float(values[1])))
+                if not all(math.isfinite(v) for v in (a, b)):
+                    continue
+                low = a if low is None else max(low, a)
+                high = b if high is None else min(high, b)
                 found = True
             elif condition.operator == "equals" and values and values[0]:
-                low = high = float(values[0])
+                value = float(values[0])
+                if not math.isfinite(value):
+                    continue
+                low = value if low is None else max(low, value)
+                high = value if high is None else min(high, value)
                 found = True
             elif condition.operator in {"gt", "gte"} and values and values[0]:
                 value = float(values[0])
+                if not math.isfinite(value):
+                    continue
                 low = value if low is None else max(low, value)
                 found = True
             elif condition.operator in {"lt", "lte"} and values and values[0]:
                 value = float(values[0])
+                if not math.isfinite(value):
+                    continue
                 high = value if high is None else min(high, value)
                 found = True
         except ValueError:
@@ -114,8 +130,7 @@ def _server_document_type_filter(rule_groups) -> set[str]:
                 c for c in grouped["all"] if c.field_name == "document_type"
             ]
             if not selected_conditions:
-                allowed.add("sale")
-                continue
+                return set()
         for condition in selected_conditions:
             if condition.operator not in {"equals", "in"}:
                 return set()
@@ -142,13 +157,18 @@ def _query_kwargs_for_rule(
     runtime_controls: RuntimeControls | None,
 ) -> dict:
     """Build one EMS query from one rule without mixing other rules into it."""
-    conditions = getattr(rule_group, "conditions", [])
+    conditions = [replace(c, field_name=canonical_field_name(c.field_name))
+                  for c in getattr(rule_group, "conditions", [])]
     query_kwargs = {
         "start_at": scan_start,
         "end_at": scan_end,
         "return_whole_order": bool(getattr(runtime_controls, "return_whole_order", True)),
     }
-    document_types = _server_document_type_filter([rule_group])
+    normalized_group = replace(rule_group, conditions=conditions)
+    document_types = _server_document_type_filter([normalized_group])
+    server_conditions = [c for c in conditions if c.field_name in {"season", "shipment_group"}]
+    if server_conditions:
+        query_kwargs["ems_rule_conditions"] = server_conditions
     if document_types is not None:
         query_kwargs["document_types"] = document_types
 
@@ -159,8 +179,6 @@ def _query_kwargs_for_rule(
         return query_kwargs
 
     amount = _numeric_bounds(conditions, "total_amount")
-    unit_price = _numeric_bounds(conditions, "unit_price")
-    discount = _numeric_bounds(conditions, "discount")
     seasons = next(
         (
             set(_condition_values(condition))
@@ -188,31 +206,16 @@ def _query_kwargs_for_rule(
         ),
         None,
     )
-    style_numbers = next(
-        (
-            set(_condition_values(condition))
-            for condition in conditions
-            if condition.field_name == "style_no"
-            and condition.operator in {"equals", "in", "contains"}
-        ),
-        None,
-    )
     if amount is not None:
         query_kwargs["amount_range"] = amount
-    if discount is not None:
-        query_kwargs["unit_discount_range"] = discount
-    if unit_price is not None:
-        query_kwargs["unit_price_range"] = unit_price
+
     if seasons:
         query_kwargs["seasons"] = {value.strip() for value in seasons if value.strip()}
     if shipment_groups:
         query_kwargs["shipment_groups"] = {
             value.strip() for value in shipment_groups if value.strip()
         }
-    if style_numbers:
-        query_kwargs["style_numbers"] = {
-            value.strip() for value in style_numbers if value.strip()
-        }
+
     query_kwargs["start_at"], query_kwargs["end_at"] = _rule_date_window(
         conditions,
         query_kwargs["start_at"],
@@ -277,6 +280,9 @@ def run_once(
     now_func=datetime.now,
     sleep_func=time.sleep,
     store_name_mapping: dict[str, str] | None = None,
+    celebration_settings: dict | None = None,
+    celebration_targets: dict[str, object] | None = None,
+    celebration_generator=generate_celebration_image_memory,
 ) -> list[str]:
     if database_url is not None:
         database_rule_groups, database_template_body = load_runtime_settings(database_url)
@@ -293,13 +299,17 @@ def run_once(
         db_session = session_factory()
 
     query_errors: list[str] = []
+    scan_start = service_started_at
+    scan_end = now_func()
     try:
         # Use the previous scan timestamp as the lower bound so an EMS scan
         # can recover records created since the last cycle.  The source keeps
         # the exact wire-level query implementation; the orchestrator only
         # supplies a date window.
         last_scan = state_store.get_last_scan_at()
-        scan_start = service_started_at if last_scan is None else min(last_scan, service_started_at)
+        # The configured rescan date is a hard lower bound. A stale state file
+        # must not reopen an older window and resend historical celebrations.
+        scan_start = service_started_at if last_scan is None else max(last_scan, service_started_at)
         scan_end = now_func()
         if database_rule_groups:
             queried_orders = _server_query_orders(
@@ -323,6 +333,18 @@ def run_once(
         query_errors.append(str(exc))
         orders_with_rules = []
 
+    # A celebration candidate must also match a normal sales rule and have a
+    # successful ordinary push (or already be recorded as pushed).
+    celebration_eligible_orders: dict[str, object] = {}
+
+    normalized_mapping = {
+        str(key).strip().upper(): str(value).strip()
+        for key, value in (store_name_mapping or {}).items()
+        if str(key).strip() and str(value).strip()
+    }
+    celebration_sent = 0
+    celebration_errors: list[str] = []
+    in_push_window = runtime_controls is None or is_within_push_window(now_func(), runtime_controls)
     if not orders_with_rules and query_errors:
         if db_session is not None:
             db_session.add(JobRun(
@@ -339,11 +361,6 @@ def run_once(
 
     pending_orders: list[tuple[object, FilterResult]] = []
     seen_order_nos: set[str] = set()
-    normalized_mapping = {
-        str(key).strip().upper(): str(value).strip()
-        for key, value in (store_name_mapping or {}).items()
-        if str(key).strip() and str(value).strip()
-    }
     selected_by_order_no: dict[str, tuple[object, FilterResult]] = {}
     for order, queried_rule in orders_with_rules:
         if normalized_mapping:
@@ -356,7 +373,7 @@ def run_once(
                                 str(order.performance_org or "").strip().upper(),
                                 order.performance_org or "",
                             ))
-        if order.order_no in seen_order_nos or state_store.has_pushed(order.order_no):
+        if order.order_no in seen_order_nos:
             continue
 
         if queried_rule is not None:
@@ -368,6 +385,8 @@ def run_once(
                 server_filtered_fields=server_filtered_fields,
             ):
                 continue
+            if runtime_controls is not None and not runtime_controls.return_whole_order:
+                order = project_rule_items(order, queried_rule)
             filter_result = FilterResult(matched=True, reason=queried_rule.name)
         elif database_rule_groups is not None:
             continue
@@ -376,11 +395,15 @@ def run_once(
             if not filter_result.matched:
                 continue
         seen_order_nos.add(order.order_no)
+        if state_store.has_pushed(order.order_no):
+            if celebration_settings and celebration_settings.get("enabled"):
+                celebration_eligible_orders[order.order_no] = order
+            continue
         selected_by_order_no[order.order_no] = (order, filter_result)
 
     pending_orders = list(selected_by_order_no.values())
 
-    if runtime_controls is not None and not is_within_push_window(now_func(), runtime_controls):
+    if not in_push_window:
         if db_session is not None:
             db_session.add(JobRun(window_start=service_started_at.isoformat(), window_end=now_func().isoformat(), status="deferred", success_count=0, failed_count=0, error_summary="outside push window"))
             db_session.commit()
@@ -428,6 +451,8 @@ def run_once(
                 db_session.add(PushRecord(order_no=order.order_no, store_name=order.store_name, total_amount=order.total_amount, rule_name=filter_result.reason or "matched", status="success"))
                 db_session.commit()
         sent_orders.append(order.order_no)
+        if celebration_settings and celebration_settings.get("enabled"):
+            celebration_eligible_orders[order.order_no] = order
 
         if (
             not dry_run
@@ -436,15 +461,31 @@ def run_once(
         ):
             sleep_func(push_interval_seconds)
 
-    state_store.set_last_scan_at(now_func())
+    # Ordinary sales messages must finish before the slower celebration renderer.
+    celebration_sent, celebration_errors = deliver_celebrations(
+        orders=list(celebration_eligible_orders.values()),
+        settings=celebration_settings,
+        targets=celebration_targets,
+        state_file=state_file,
+        dry_run=dry_run,
+        in_push_window=in_push_window,
+        scan_start=scan_start,
+        scan_end=scan_end,
+        store_name_mapping=store_name_mapping,
+        now_func=now_func,
+        generator=celebration_generator,
+    )
+
+    if not query_errors:
+        state_store.set_last_scan_at(now_func())
     if db_session is not None:
         db_session.add(JobRun(
             window_start=service_started_at.isoformat(),
             window_end=now_func().isoformat(),
-            status="failed" if query_errors or failed_orders else "success",
-            success_count=len(sent_orders),
-            failed_count=len(query_errors) + failed_orders,
-            error_summary="; ".join(query_errors) if query_errors else None,
+            status="failed" if query_errors or celebration_errors or failed_orders else "success",
+            success_count=len(sent_orders) + celebration_sent,
+            failed_count=len(query_errors) + len(celebration_errors) + failed_orders,
+            error_summary="; ".join(query_errors + celebration_errors) if query_errors or celebration_errors else None,
         ))
         db_session.commit()
         db_session.close()

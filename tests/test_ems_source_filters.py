@@ -25,7 +25,7 @@ def _order(*, amount: float = 12600, store: str = "G899", kind: str = "preorder"
                 barcode="GJACH619CCNY0C638",
                 style_no="JACH619CNY0",
                 unit_price=12600,
-                attributes={"product_code": "GJACH619CCNY0C6"},
+                attributes={"product_code": "GJACH619CCNY0C6", "discount": 12},
             )
         ],
     )
@@ -78,14 +78,17 @@ def test_source_forwards_server_filters_and_locally_checks_decoded_fields(monkey
         return_whole_order=False,
     )
 
-    assert len(client.calls) == 1
+    assert len(client.calls) == 3
+    assert client.calls[1][2]["seasons"] == {"26FW"}
+    assert client.calls[2][2]["shipment_groups"] == {"26FWG6"}
     start, end, kwargs = client.calls[0]
     assert (start, end) == ("20260922", "20260923")
     assert kwargs["amount_range"] == (10000, 20000)
-    assert kwargs["unit_price_range"] == (0, 50000)
-    assert kwargs["unit_discount_range"] == (0, 100)
+    assert "unit_price_range" not in kwargs
+    assert "unit_discount_range" not in kwargs
     assert kwargs["document_types"] == {"sale", "exchange", "return", "preorder"}
-    assert kwargs["style_numbers"] == {"JACH619CNY0"}
+    assert "style_numbers" not in kwargs
+    assert kwargs["return_whole_order"] is True
     assert len(orders) == 1
     assert orders[0].order_no == "SOG899260922002"
 
@@ -168,11 +171,12 @@ def test_saved_rule_conditions_become_ems_server_query_parameters(tmp_path) -> N
     assert source.kwargs["start_at"] == datetime(2026, 9, 22)
     assert source.kwargs["end_at"] == datetime(2026, 9, 23, 23, 59, 59, 999999)
     assert source.kwargs["amount_range"] == (10000, 20000)
-    assert source.kwargs["unit_price_range"] == (0, 50000)
-    assert source.kwargs["unit_discount_range"] == (0, 100)
+    assert "unit_price_range" not in source.kwargs
+    assert "unit_discount_range" not in source.kwargs
     assert source.kwargs["seasons"] == {"26FW"}
     assert source.kwargs["shipment_groups"] == {"26FWG6"}
-    assert source.kwargs["style_numbers"] == {"JACH619CNY0"}
+    assert "style_numbers" not in source.kwargs
+    assert [c.field_name for c in source.kwargs["ems_rule_conditions"]] == ["season", "shipment_group"]
     assert source.kwargs["document_types"] == {"sale", "return", "exchange", "preorder"}
 
 
@@ -336,11 +340,12 @@ def test_gui_saved_database_conditions_flow_through_orchestrator(tmp_path) -> No
 
     assert source.kwargs["store_names"] == {"G899", "G889"}
     assert source.kwargs["amount_range"] == (10000, 20000)
-    assert source.kwargs["unit_price_range"] == (0, 50000)
-    assert source.kwargs["unit_discount_range"] == (0, 100)
+    assert "unit_price_range" not in source.kwargs
+    assert "unit_discount_range" not in source.kwargs
     assert source.kwargs["seasons"] == {"26FW"}
     assert source.kwargs["shipment_groups"] == {"26FWG6"}
-    assert source.kwargs["style_numbers"] == {"JACH619CNY0"}
+    assert "style_numbers" not in source.kwargs
+    assert [c.field_name for c in source.kwargs["ems_rule_conditions"]] == ["season", "shipment_group"]
     assert source.kwargs["document_types"] == {"sale", "return", "exchange", "preorder"}
     assert source.kwargs["start_at"] == datetime(2026, 9, 22)
     assert source.kwargs["end_at"] == datetime(2026, 9, 23, 23, 59, 59, 999999)

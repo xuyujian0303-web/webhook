@@ -99,3 +99,11 @@ def order_field_values(order: SalesOrder, field_name: str) -> list[str]:
     if field_name in {item.name for item in fields(order)}:
         return [text for text in (_as_value(getattr(order, field_name)),) if text]
     return [text for text in (_as_value(order.attributes.get(field_name)),) if text]
+
+
+# Fields whose values belong to individual detail rows, rather than headers.
+ITEM_RULE_FIELDS = frozenset({
+    "product_code", "barcode", "style_no", "unit_price", "brand", "category",
+    "quantity", "discount", "actual_amount", "actual_discount", "item_id",
+    "product_type", "special_sale", "product_status", "operation_type",
+})

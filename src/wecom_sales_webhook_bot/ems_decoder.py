@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import struct
-import re
 from datetime import datetime
 
 from .models import SalesLineItem, SalesOrder
@@ -13,44 +12,17 @@ class EmsDecodeError(ValueError):
 
 
 def infer_document_type(total_amount: float, raw_type: object = None) -> str:
-    """Return the normalized EMS document type.
-
-    The current sale-detail response does not expose a stable readable type
-    field in every captured response. A negative whole-order amount is the
-    reliable signature of a return document, so it must never inherit the
-    ``SalesOrder`` default of ``sale``. A future wire-level type value can be
-    supplied through ``raw_type`` without changing callers.
-    """
-    text = str(raw_type or "").strip().casefold()
+    """Normalize the verified EMS code; retain amount-sign fallback if absent."""
+    text = "" if raw_type is None else str(raw_type).strip().casefold()
     aliases = {
         "0": "sale", "sale": "sale", "销售": "sale",
-        "1": "return", "return": "return", "退货": "return",
-        "2": "exchange", "exchange": "exchange", "换货": "exchange",
+        "2": "return", "return": "return", "退货": "return",
+        "1": "exchange", "exchange": "exchange", "换货": "exchange",
         "3": "preorder", "preorder": "preorder", "预购": "preorder",
     }
     if text in aliases:
         return aliases[text]
     return "return" if total_amount < 0 else "unknown"
-
-
-def _extract_document_type_code(record: bytes) -> str | None:
-    first_item = len(record)
-    offset = 0
-    marker = b"\x0b\x00\x02"
-    while True:
-        offset = record.find(marker, offset)
-        if offset < 0 or offset + 7 > len(record):
-            break
-        length = int.from_bytes(record[offset + 3:offset + 7], "big")
-        end = offset + 7 + length
-        if end <= len(record):
-            value = record[offset + 7:end]
-            if value.startswith(b"G") and len(value) >= 15:
-                first_item = offset
-                break
-        offset += len(marker)
-    match = re.search(rb"\x03\x00\x05(?P<code>[\x00-\x03])", record[:first_item])
-    return str(match.group("code")[0]) if match else None
 
 
 def _is_order_number(value: object) -> bool:
@@ -83,19 +55,21 @@ def category_from_style_no(style_no: object) -> str | None:
 
 
 def extract_sale_detail_records(payload: bytes) -> list[list[dict[str, object]]]:
-    """Split a query response into records using the stable XSG order marker.
-
-    The response contains an outer method/header followed by repeated detail
-    records. In the authorized sample each record starts with TLV string field
-    id=2 whose value begins with ``XSG``. This function intentionally returns
-    raw fields; business-field mapping remains explicit in the next layer.
-    """
-    fields = scan_tlv_fields(payload)
-    starts = [i for i, item in enumerate(fields) if item.get("field_id") == 2 and isinstance(item.get("value"), str) and _is_order_number(item["value"])]
-    records: list[list[dict[str, object]]] = []
-    for index, start in enumerate(starts):
-        records.append(fields[start:starts[index + 1] if index + 1 < len(starts) else len(fields)])
-    return records
+    """Return structurally separated primitive fields for diagnostic callers."""
+    records, _ = _read_sale_detail_response(payload)
+    def flatten(value):
+        output = []
+        if isinstance(value, dict):
+            for field_id, item in value.items():
+                if isinstance(item, (dict, list)):
+                    output.extend(flatten(item))
+                else:
+                    output.append({"field_id": field_id, "value": item})
+        elif isinstance(value, list):
+            for item in value:
+                output.extend(flatten(item))
+        return output
+    return [flatten(record) for record in records]
 
 
 def extract_sale_detail_records_raw(payload: bytes) -> list[bytes]:
@@ -118,243 +92,175 @@ def extract_sale_detail_records_raw(payload: bytes) -> list[bytes]:
 
 
 def decode_sale_detail_tlv(payload: bytes) -> list[dict[str, object]]:
-    """Decode the stable order/item identifiers from an EMS TLV response.
-
-    This is deliberately an intermediate representation. Numeric amount and
-    discount fields are not guessed until their wire types are confirmed.
-    """
-    output: list[dict[str, object]] = []
-    for fields in (scan_tlv_fields(record) for record in extract_sale_detail_records_raw(payload)):
-        strings = [item for item in fields if isinstance(item.get("value"), str)]
-        order_no = next((str(item["value"]).strip() for item in strings if _is_order_number(item["value"])), None)
-        if not order_no:
-            continue
-        dates = [str(item["value"]) for item in strings if len(str(item["value"])) in (8, 14) and str(item["value"]).isdigit()]
-        product_codes = [str(item["value"]).strip() for item in strings if str(item["value"]).strip().startswith("G") and len(str(item["value"]).strip()) >= 8]
+    """Expose verified header fields and primitives for protocol diagnostics."""
+    records, _ = _read_sale_detail_response(payload)
+    output = []
+    for record, fields in zip(records, extract_sale_detail_records(payload)):
+        header = record[1]
         output.append({
-            "order_no": order_no,
-            "sold_date": dates[0] if dates else None,
-            "created_at": dates[-1] if dates else None,
-            "string_fields": strings,
-            "product_codes": product_codes,
-            "numeric_fields": [item for item in fields if isinstance(item.get("value"), int)],
+            "order_no": header[2].strip(), "sold_date": header.get(3),
+            "created_at": header.get(16),
+            "string_fields": [field for field in fields if isinstance(field["value"], str)],
+            "product_codes": [line[12].strip() for line in record[2]],
+            "numeric_fields": [field for field in fields if isinstance(field["value"], (int, float))],
         })
     return output
 
 
-def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
-    """Convert the verified EMS response subset into project order models.
+class _BinaryReader:
+    """Read bounded Thrift binary values without scanning inside string bytes."""
 
-    The sample protocol exposes monetary values as integer thousandths (field
-    13 on the order header and field 7 on an item). Unknown fields remain ignored
-    until their wire definition is confirmed.
+    def __init__(self, payload: bytes):
+        self.payload = payload
+        self.offset = 0
+        self.fields: list[dict[str, object]] = []
+
+    def take(self, size: int) -> bytes:
+        if size < 0 or self.offset + size > len(self.payload):
+            raise EmsDecodeError("truncated EMS binary response")
+        value = self.payload[self.offset:self.offset + size]
+        self.offset += size
+        return value
+
+    def integer(self, size: int) -> int:
+        return int.from_bytes(self.take(size), "big", signed=True)
+
+    def value(self, tag: int, depth: int = 0):
+        if depth > 64:
+            raise EmsDecodeError("EMS binary nesting exceeds limit")
+        if tag in {2, 3, 6, 8, 10}:
+            value = self.integer({2: 1, 3: 1, 6: 2, 8: 4, 10: 8}[tag])
+            return bool(value) if tag == 2 else value
+        if tag == 4:
+            return struct.unpack(">d", self.take(8))[0]
+        if tag == 11:
+            return _decode_text(self.take(self.integer(4)))
+        if tag == 12:
+            result = {}
+            while True:
+                kind = self.integer(1)
+                if kind == 0:
+                    return result
+                field_id = self.integer(2)
+                value = self.value(kind, depth + 1)
+                if field_id in result:
+                    raise EmsDecodeError("duplicate EMS struct field")
+                result[field_id] = value
+                if kind not in {12, 13, 14, 15}:
+                    self.fields.append({"tag": kind, "field_id": field_id, "value": value})
+        if tag in {13, 14, 15}:
+            key_type = self.integer(1)
+            value_type = self.integer(1) if tag == 13 else key_type
+            count = self.integer(4)
+            if not 0 <= count <= len(self.payload):
+                raise EmsDecodeError("invalid EMS collection size")
+            if tag == 13:
+                return {self.value(key_type, depth + 1): self.value(value_type, depth + 1)
+                        for _ in range(count)}
+            return [self.value(value_type, depth + 1) for _ in range(count)]
+        raise EmsDecodeError(f"unsupported EMS binary tag {tag}")
+
+
+def _read_sale_detail_response(payload: bytes):
+    if len(payload) >= 4 and payload[:4] != b"\x80\x01\x00\x02" and payload[:4] != b"\x80\x01\x00\x03":
+        if int.from_bytes(payload[:4], "big") == len(payload) - 4:
+            payload = payload[4:]
+    reader = _BinaryReader(payload)
+    version = reader.take(4)
+    if version not in {b"\x80\x01\x00\x02", b"\x80\x01\x00\x03"}:
+        raise EmsDecodeError("invalid EMS response envelope")
+    method = reader.value(11)
+    reader.integer(4)  # sequence id
+    if method != "querySaleDetailList":
+        raise EmsDecodeError("unexpected EMS response method")
+    result = reader.value(12)
+    if reader.offset != len(payload):
+        raise EmsDecodeError("trailing bytes in EMS response")
+    if version[-1] == 3 or 0 not in result or not isinstance(result[0], list):
+        raise EmsDecodeError("EMS sale-detail query returned an error")
+    return result[0], reader.fields
+
+
+def _enum_label(value: object, labels: dict[int, str]) -> str | None:
+    if value is None:
+        return None
+    return labels.get(value, f"unknown:{value}")
+
+
+def decode_sale_detail_orders(payload: bytes) -> list[SalesOrder]:
+    """Decode verified EMS structs (2026-11-13--15: 510 orders, 750 items).
+
+    Header and item IDs live in separate nested structs. I32 and I64 are
+    signed, money uses thousandths, actual discount uses hundredths.
+    Each physical ItemID is one piece; operation 1 is a returned piece.
     """
+    records, _ = _read_sale_detail_response(payload)
     orders: list[SalesOrder] = []
-    for record in extract_sale_detail_records_raw(payload):
-        fields = scan_tlv_fields(record)
-        strings = [str(x["value"]).strip() for x in fields if isinstance(x.get("value"), str)]
-        order_no = next((x for x in strings if _is_order_number(x)), None)
-        date_text = next((x for x in strings if len(x) == 8 and x.isdigit()), None)
-        created_text = next((x for x in strings if len(x) == 14 and x.isdigit()), None)
-        if not order_no or not date_text:
-            continue
-        try:
-            sold_at = datetime.strptime(created_text or date_text, "%Y%m%d%H%M%S" if created_text else "%Y%m%d")
-        except ValueError:
-            continue
-        # Header values precede the first item barcode.  In the verified EMS
-        # detail response the item segment is: field 2 = full barcode,
-        # field 12 = product code and field 13 = style/colour code.  Earlier
-        # code chose the next G-prefixed text and consequently exposed the
-        # product code as ``style_no``.  Keep the field IDs here so the three
-        # business fields remain distinct.
-        string_entries = [item for item in fields if isinstance(item.get("value"), str)]
-        product_indexes = [
-            index for index, item in enumerate(string_entries)
-            if item.get("field_id") == 2
-            and len(str(item["value"]).strip()) >= 15
-            and str(item["value"]).strip().startswith("G")
-        ]
-        first_product = product_indexes[0] if product_indexes else len(string_entries)
-        first_product_field_index = next(
-            (
-                index for index, item in enumerate(fields)
-                if item.get("field_id") == 2
-                and isinstance(item.get("value"), str)
-                and len(str(item["value"]).strip()) >= 15
-                and str(item["value"]).strip().startswith("G")
-            ),
-            len(fields),
-        )
-        header_fields = fields[:first_product_field_index]
-        header_strings = strings[:first_product]
-        store_name = next((x for x in header_strings if x.startswith("G") and len(x) <= 8), "")
-        # The organization container repeats field ids 2 and 3.  Its first
-        # organization pair is the business/selling organization (G00J in
-        # the verified samples); the next pair is the performance
-        # organization (G887/G820).  A dict keyed only by field id loses the
-        # first value, so preserve occurrence order and use the first two
-        # distinct organization values.
-        header_orgs: list[str] = []
-        for item in header_fields:
-            value = str(item.get("value", "")).strip()
-            if item.get("field_id") in {2, 3} and value.startswith("G") and value not in header_orgs:
-                header_orgs.append(value)
-        store_name = header_orgs[0] if header_orgs else store_name
-        performance_org = header_orgs[1] if len(header_orgs) > 1 else store_name
-        # The order metadata container (field 19) contains three length-
-        # prefixed UTF-8 strings: customer source, activity type and
-        # promotion material.  Parse that container locally so values such as
-        # ``KOS（上身、挂拍、二创）`` are not truncated by global text matching.
-        utf8_texts: list[str] = []
-        meta_start = record.find(b"\x0d\x00\x13\x08")
-        meta_end = record.find(b"\x0c\x00\x14", meta_start + 7) if meta_start >= 0 else -1
-        if meta_start >= 0:
-            segment = record[meta_start + 4:meta_end if meta_end > meta_start else len(record)]
-            for pos in range(len(segment) - 4):
-                n = int.from_bytes(segment[pos:pos + 4], "big")
-                if 1 <= n <= 512 and pos + 4 + n <= len(segment):
-                    raw = segment[pos + 4:pos + 4 + n]
-                    # A valid metadata value must not contain embedded NULs;
-                    # this filters the container's bookkeeping integers when
-                    # scanning for its length-prefixed strings.
-                    if b"\x00" in raw:
-                        continue
-                    try:
-                        text = raw.decode("utf-8").strip()
-                    except UnicodeDecodeError:
-                        continue
-                    if text and (any(ord(ch) > 127 for ch in text) or text in {"KOS", "无", "其他"}):
-                        if text not in utf8_texts:
-                            utf8_texts.append(text)
-        amount_values = [x["value"] for x in header_fields if x.get("field_id") == 13 and isinstance(x.get("value"), int)]
-        if not amount_values:
-            marker = b"\x0a\x00\x0d"
-            amount_values = [int.from_bytes(record[pos + 3:pos + 11], "big")
-                             for pos in range(len(record) - 11)
-                             if record.startswith(marker, pos)]
-        if amount_values:
-            raw_amount = amount_values[0]
-            if raw_amount >= (1 << 63):
-                raw_amount -= (1 << 64)
-            total_amount = raw_amount / 1000
-        else:
-            total_amount = 0.0
-        # The compact header field 5 carries the EMS document type code.
-        document_type = infer_document_type(total_amount, _extract_document_type_code(record))
-        items: list[SalesLineItem] = []
-        for item_pos, index in enumerate(product_indexes):
-            next_index = product_indexes[item_pos + 1] if item_pos + 1 < len(product_indexes) else len(string_entries)
-            item_fields = string_entries[index:next_index]
-            barcode = str(string_entries[index]["value"]).strip()
-            product_code = next(
-                (str(item["value"]).strip() for item in item_fields[1:] if item.get("field_id") == 12 and str(item["value"]).strip()),
-                barcode,
-            )
-            style_no = next(
-                (str(item["value"]).strip() for item in item_fields[1:] if item.get("field_id") == 13 and str(item["value"]).strip()),
-                product_code,
-            )
-            price = 0.0
-            # The first field-7 value after this product marker belongs to it.
-            product_seen = False
-            for field in fields:
-                if field.get("value") == barcode:
-                    product_seen = True
-                elif product_seen and field.get("field_id") == 7 and isinstance(field.get("value"), int):
-                    raw_price = int(field["value"])
-                    if raw_price >= (1 << 63):
-                        raw_price -= (1 << 64)
-                    price = raw_price / 1000
-                    break
-            items.append(SalesLineItem(
-                barcode=barcode,
-                style_no=style_no,
-                unit_price=price,
-                category=category_from_style_no(style_no),
-                image_url=build_ems_image_url(product_code),
-                attributes={"product_code": product_code, "item_id": product_code},
+    try:
+        for record in records:
+            header = record[1]
+            order_no = header[2].strip()
+            if not _is_order_number(order_no):
+                raise EmsDecodeError("invalid EMS order number")
+            sold_at = datetime.strptime(header[3], "%Y%m%d")
+            created_at = datetime.strptime(header[16], "%Y%m%d%H%M%S") if header.get(16) else None
+            sales_org = header[4]
+            performance_org = header.get(20, sales_org)
+            metadata = header.get(19, {})
+            items = []
+            for line in record[2]:
+                operation = line.get(6)
+                if operation not in {0, 1}:
+                    raise EmsDecodeError("unknown EMS item operation")
+                product_code = line[12].strip()
+                style_no = line[13].strip()
+                items.append(SalesLineItem(
+                    barcode=line[2].strip(), style_no=style_no,
+                    unit_price=line[7] / 1000,
+                    quantity=-1 if operation == 1 else 1,
+                    category=line.get(11) or category_from_style_no(style_no),
+                    image_url=build_ems_image_url(product_code),
+                    attributes={
+                        "product_code": product_code, "item_id": str(line[1]),
+                        "product_type": _enum_label(line.get(3), {0: "商品"}),
+                        "special_sale": bool(line[4]) if 4 in line else None,
+                        "product_status": _enum_label(line.get(5), {0: "正常销售", 1: "已被退货", 2: "已被换货"}),
+                        "operation_type": {0: "销售", 1: "退回"}[operation],
+                        "discount": line.get(8),
+                        "actual_amount": line[9] / 1000 if 9 in line else None,
+                        "actual_discount": line[10] / 100 if 10 in line else None,
+                    },
+                ))
+            total_amount = header[13] / 1000
+            orders.append(SalesOrder(
+                order_no=order_no, sold_at=sold_at,
+                store_name=sales_org[2].strip(),
+                performance_org=performance_org[2].strip(),
+                store_name_display=sales_org.get(3),
+                performance_org_display=performance_org.get(3),
+                total_amount=total_amount,
+                document_type=infer_document_type(total_amount, header.get(5)),
+                salesperson=header.get(17), total_quantity=header.get(18),
+                customer_type=_enum_label(header.get(7), {0: "VIP顾客", 1: "积分卡顾客", 2: "普通顾客"}),
+                card_type=_enum_label(header.get(11), {0: "", 1: "专家", 3: "藏家", 4: "名家", 31: "访者", 33: "行家"}),
+                customer_source=metadata.get(1), activity_type=metadata.get(2),
+                promotion_material=metadata.get(4),
+                attributes={
+                    "currency": header.get(6), "card_no": header.get(12),
+                    "customer_discount_type": _enum_label(header.get(9), {0: "无折扣", 1: "VIP折扣", 4: "GFriend折扣"}),
+                    "customer_discount": header.get(10), "created_at": created_at,
+                }, items=items,
             ))
-        salesperson = next((str(x.get("value")).strip() for x in fields
-                            if x.get("field_id") == 17 and isinstance(x.get("value"), str)
-                            and str(x.get("value")).strip()), None)
-        card_type = next((str(x.get("value")).strip() for x in fields
-                          if x.get("field_id") == 14 and isinstance(x.get("value"), str)
-                          and str(x.get("value")).strip()), None)
-        # Header field 11 is a compact numeric card-type code (tag 0x03),
-        # not a normal string TLV.  The initialization response
-        # ``getOrgAllCardTypeList`` in ems_login_query.pcapng defines these
-        # codes: 1=专家, 3=藏家, 4=名家, 31=访者, 33=行家.
-        card_code_match = re.search(rb"\x03\x00\x0b(?P<code>.{1})", record[:record.find(b"\x0d\x00\x13") if record.find(b"\x0d\x00\x13") > 0 else len(record)], re.S)
-        if card_code_match:
-            card_code = card_code_match.group("code")[0]
-            card_type = {1: "专家", 3: "藏家", 4: "名家", 31: "访者", 33: "行家"}.get(card_code)
-        # Header card number is a field-12 string before the metadata
-        # container; item field-12 values are product codes and must be ignored.
-        card_no = None
-        header_end = record.find(b"\x0d\x00\x13")
-        for m in re.finditer(rb"\x0b\x00\x0c(?P<len>.{4})(?P<value>[^\x00]{1,32})", record[:header_end if header_end > 0 else len(record)], re.S):
-            raw = m.group("value")[:int.from_bytes(m.group("len"), "big")]
-            if raw.isdigit():
-                card_no = raw.decode("ascii")
-                break
-        # EMS does not expose a readable customer-type label in the binary
-        # response. Card-number prefixes match the exported EMS semantics:
-        # 80xxxxx = VIP, 60xxxxx = 积分卡, blank = 普通顾客.
-        customer_type = ("VIP顾客" if card_no and card_no.startswith("8") else
-                         "积分卡顾客" if card_no and card_no.startswith("6") else "普通顾客")
-        orders.append(SalesOrder(order_no=order_no, sold_at=sold_at,
-                                 store_name=store_name, performance_org=performance_org,
-                                 total_amount=total_amount,
-                                 document_type=document_type,
-                                 salesperson=salesperson,
-                                 customer_source=customer_type,
-                                 activity_type=utf8_texts[1] if len(utf8_texts) > 1 else None,
-                                 promotion_material=utf8_texts[2] if len(utf8_texts) > 2 else None,
-                                 card_type=card_type,
-                                 customer_type=customer_type,
-                                 total_quantity=len(items), items=items))
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        if isinstance(exc, EmsDecodeError):
+            raise
+        raise EmsDecodeError("invalid EMS sale-detail record") from exc
     return orders
 
 
 def scan_tlv_fields(payload: bytes) -> list[dict[str, object]]:
-    """Return safely framed primitive TLV values from an EMS response.
-
-    EMS uses several container records in addition to primitive fields. This
-    scanner deliberately reports only self-describing values (string ``0x0b``
-    and fixed-width numeric ``0x08``/``0x0a``) so callers can inspect samples
-    without treating guessed offsets as production mappings.
-    """
-    fields: list[dict[str, object]] = []
-    i = 0
-    while i + 7 <= len(payload):
-        tag = payload[i]
-        if tag in (0x0b, 0x0c):
-            field_id = int.from_bytes(payload[i + 1:i + 3], "big")
-            length = int.from_bytes(payload[i + 3:i + 7], "big")
-            end = i + 7 + length
-            if 0 <= length <= len(payload) and end <= len(payload):
-                raw = payload[i + 7:end]
-                if tag == 0x0b:
-                    fields.append({"tag": tag, "field_id": field_id, "value": _decode_text(raw)})
-                # Do not skip over containers: nested RDS records are part
-                # of the same order and may contain the next primitive.
-                if tag == 0x0b:
-                    i += 1
-                    continue
-        # Numeric RDS values in the captured response are encoded as
-        # ``tag + field-id(2) + value(8)`` (there is no length word). Keep
-        # this separate from the length-prefixed string/container form above.
-        if tag in (0x08, 0x0a) and i + 11 <= len(payload):
-            field_id = int.from_bytes(payload[i + 1:i + 3], "big")
-            raw = payload[i + 3:i + 11]
-            if len(raw) == 8:
-                end = i + 11
-                fields.append({"tag": tag, "field_id": field_id, "value": int.from_bytes(raw, "big", signed=False)})
-                i = end
-                continue
-        i += 1
-    return fields
+    """Inspect primitive fields of a complete, structurally valid response."""
+    return _read_sale_detail_response(payload)[1]
 
 
 def decode_sale_detail(payload: bytes) -> list[SalesOrder]:
