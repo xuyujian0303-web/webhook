@@ -73,6 +73,8 @@ if errorlevel 1 goto :start_python_gui
 if not exist "dist\企业微信销售推送.exe" goto :show_failure
 copy /Y "dist\企业微信销售推送.exe" "%CD%\企业微信销售推送.exe" >>"%LOG%" 2>&1
 if errorlevel 1 goto :show_failure
+if exist "build" rmdir /S /Q "build"
+if exist "dist" rmdir /S /Q "dist"
 
 echo Starting the desktop application...
 start "WeCom Sales GUI" "%CD%\企业微信销售推送.exe"

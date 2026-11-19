@@ -35,4 +35,5 @@ $sourceExe = Join-Path $dist ($exeName + ".exe")
 $deliveryExe = Join-Path $repoRoot ($exeName + ".exe")
 if (-not (Test-Path -LiteralPath $sourceExe)) { throw "The expected EXE was not generated: $sourceExe" }
 Copy-Item -LiteralPath $sourceExe -Destination $deliveryExe -Force
+Remove-Item -LiteralPath $work, $dist -Recurse -Force
 Write-Output $deliveryExe
