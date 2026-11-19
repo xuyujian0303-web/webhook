@@ -174,13 +174,13 @@ class DesktopApp:
             ttk.Entry(page, textvariable=self.runtime_vars[key], width=28).grid(row=row, column=1, sticky="w", padx=8)
         ttk.Checkbutton(page, text="演练模式（只读取和筛选，不实际推送）", variable=self.dry_run).grid(row=5, column=0, columnspan=2, sticky="w", pady=10)
         ttk.Checkbutton(page, text="返回包含筛选条件的整个销售单", variable=self.return_whole_order).grid(row=6, column=0, columnspan=2, sticky="w", pady=4)
-        buttons = ttk.Frame(page); buttons.grid(row=8, column=0, columnspan=2, sticky="w", pady=10)
+        buttons = ttk.Frame(page); buttons.grid(row=8, column=0, columnspan=2, sticky="w", pady=(12, 4))
         ttk.Button(buttons, text="保存运行配置", command=self.save_config).pack(side="left")
         ttk.Button(buttons, text="立即执行一轮", command=lambda: self._run_cli("run-once")).pack(side="left", padx=8)
         ttk.Button(buttons, text="启动持续扫描", command=lambda: self._run_cli("schedule", True)).pack(side="left")
         ttk.Button(buttons, text="停止持续扫描", command=self.stop_schedule).pack(side="left", padx=8)
         self.status = tk.StringVar(value="就绪")
-        ttk.Label(page, textvariable=self.status, wraplength=850).grid(row=8, column=0, columnspan=3, sticky="w", pady=20)
+        ttk.Label(page, textvariable=self.status, wraplength=850).grid(row=9, column=0, columnspan=3, sticky="w", pady=(4, 12))
 
     def _build_webhook_tab(self, tabs) -> None:
         page = ttk.Frame(tabs, padding=16); tabs.add(page, text="Webhook")
@@ -496,7 +496,7 @@ class DesktopApp:
             ttk.Checkbutton(field_frame, text=CONTENT_FIELD_LABELS[key], variable=var).grid(row=index // 4, column=index % 4, sticky="w", padx=8, pady=3)
 
         webhook_frame = ttk.LabelFrame(page, text="推送到企业微信群", padding=10)
-        webhook_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=8)
+        webhook_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(8, 4))
         urls = self._configured_webhook_urls()
         selected_targets = settings.get("webhook_targets")
         if selected_targets is None:
@@ -509,11 +509,11 @@ class DesktopApp:
             self.celebration_target_vars[target_id] = var
             ttk.Checkbutton(webhook_frame, text=f"Webhook {index + 1}", variable=var).grid(row=index // 4, column=index % 4, sticky="w", padx=8, pady=3)
 
-        buttons = ttk.Frame(page); buttons.grid(row=7, column=0, columnspan=3, sticky="w", pady=10)
+        buttons = ttk.Frame(page); buttons.grid(row=8, column=0, columnspan=3, sticky="w", pady=(8, 4))
         ttk.Button(buttons, text="保存喜报设置", command=self.save_config).pack(side="left")
         ttk.Button(buttons, text="生成预览图片", command=self._preview_celebration).pack(side="left", padx=8)
         self.celebration_status = tk.StringVar(value="")
-        ttk.Label(page, textvariable=self.celebration_status, wraplength=850).grid(row=8, column=0, columnspan=3, sticky="w", pady=4)
+        ttk.Label(page, textvariable=self.celebration_status, wraplength=850).grid(row=9, column=0, columnspan=3, sticky="w", pady=(4, 12))
         page.columnconfigure(1, weight=1)
 
     def _configured_webhook_urls(self) -> list[str]:

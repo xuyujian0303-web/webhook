@@ -11,7 +11,7 @@ setupPath = projectRoot & "\一键安装并启动GUI.cmd"
 shell.CurrentDirectory = projectRoot
 
 If fso.FileExists(exePath) Then
-    shell.Run Chr(34) & exePath & Chr(34), 0, False
+    shell.Run Chr(34) & exePath & Chr(34), 1, False
 Else
     command = "cmd.exe /c " & Chr(34) & _
         Chr(34) & setupPath & Chr(34) & _
